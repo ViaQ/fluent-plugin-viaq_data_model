@@ -17,14 +17,7 @@
 # limitations under the License.
 #
 #require_relative '../helper'
-require 'rr'
-require 'test/unit'
-require 'test/unit/rr'
-require 'fileutils'
-require 'fluent/log'
 require 'fluent/test'
-require 'fluent/plugin/base'
-require 'fluent/plugin_helper'
 
 require 'fluent/plugin/filter_viaq_data_model'
 
