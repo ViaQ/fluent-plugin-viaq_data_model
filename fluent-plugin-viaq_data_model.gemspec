@@ -4,7 +4,7 @@ $LOAD_PATH.unshift(lib) unless $LOAD_PATH.include?(lib)
 
 Gem::Specification.new do |gem|
   gem.name          = "fluent-plugin-viaq_data_model"
-  gem.version       = "0.0.2"
+  gem.version       = "0.0.3"
   gem.authors       = ["Rich Megginson"]
   gem.email         = ["rmeggins@redhat.com"]
   gem.description   = %q{Filter plugin to ensure data is in the ViaQ common data model}
@@ -22,10 +22,10 @@ Gem::Specification.new do |gem|
 
   gem.add_runtime_dependency "fluentd", ">= 0.12.0"
 
-  gem.add_development_dependency "bundler", "~> 1.3"
-  gem.add_development_dependency "rake"
-  gem.add_development_dependency "minitest", "~> 4.0"
-  gem.add_development_dependency "test-unit", "~> 3.0.2"
-  gem.add_development_dependency "test-unit-rr", "~> 1.0.3"
-  gem.add_development_dependency "copyright-header"
+  gem.add_development_dependency "bundler"
+  gem.add_development_dependency("fluentd", ">= 0.12.0")
+  gem.add_development_dependency("rake", ["~> 11.0"])
+  gem.add_development_dependency("rr", ["~> 1.0"])
+  gem.add_development_dependency("test-unit", ["~> 3.2"])
+  gem.add_development_dependency("test-unit-rr", ["~> 1.0"])
 end
