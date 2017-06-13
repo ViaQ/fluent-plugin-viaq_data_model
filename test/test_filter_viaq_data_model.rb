@@ -192,6 +192,26 @@ class ViaqDataModelFilterTest < Test::Unit::TestCase
       assert_equal(99, rec['h']['i']['m'])
       assert_true(rec['h']['i']['n'])
     end
+    test 'see if fields with a value of numeric 0 are removed or preserved' do
+      msg = {'a'=>{'b'=>{'c'=>{'d'=>{'e'=>'','f'=>{},'g'=>0}}}},'h'=>{'i'=>{'j'=>'','k'=>'l','m'=>0,'n'=>true}}}
+      rec = emit_with_tag('tag', msg)
+      assert_nil(rec['a']['b']['c']['d']['e'])
+      assert_nil(rec['a']['b']['c']['d']['f'])
+      assert_equal(0, rec['a']['b']['c']['d']['g'])
+      assert_equal('l', rec['h']['i']['k'])
+      assert_equal(0, rec['h']['i']['m'])
+      assert_true(rec['h']['i']['n'])
+    end
+    test 'see if fields with array values of numeric values are preserved' do
+      msg = {'a'=>{'b'=>{'c'=>{'d'=>{'e'=>'','f'=>{},'g'=>[99.999]}}}},'h'=>{'i'=>{'j'=>'','k'=>'l','m'=>[88],'n'=>true}}}
+      rec = emit_with_tag('tag', msg)
+      assert_equal([99.999], rec['a']['b']['c']['d']['g'])
+      assert_nil(rec['a']['b']['c']['d']['e'])
+      assert_nil(rec['a']['b']['c']['d']['f'])
+      assert_equal('l', rec['h']['i']['k'])
+      assert_equal([88], rec['h']['i']['m'])
+      assert_true(rec['h']['i']['n'])
+    end
 
   end
 end
