@@ -90,17 +90,25 @@ module Fluent
     desc 'Name of destination timestamp field'
     config_param :dest_time_name, :string, default: '@timestamp'
 
-    desc 'Process records matching this tag pattern as system journal records e.g. "journal.system** journal.container** journal"'
-    config_param :journal_system_record_tag, :string, default: nil
+    # <formatter>
+    #   type sys_journal
+    #   tag "journal.system**"
+    #   remove_keys log,stream,MESSAGE,_SOURCE_REALTIME_TIMESTAMP,__REALTIME_TIMESTAMP,CONTAINER_ID,CONTAINER_ID_FULL,CONTAINER_NAME,PRIORITY,_BOOT_ID,_CAP_EFFECTIVE,_CMDLINE,_COMM,_EXE,_GID,_HOSTNAME,_MACHINE_ID,_PID,_SELINUX_CONTEXT,_SYSTEMD_CGROUP,_SYSTEMD_SLICE,_SYSTEMD_UNIT,_TRANSPORT,_UID,_AUDIT_LOGINUID,_AUDIT_SESSION,_SYSTEMD_OWNER_UID,_SYSTEMD_SESSION,_SYSTEMD_USER_UNIT,CODE_FILE,CODE_FUNCTION,CODE_LINE,ERRNO,MESSAGE_ID,RESULT,UNIT,_KERNEL_DEVICE,_KERNEL_SUBSYSTEM,_UDEV_SYSNAME,_UDEV_DEVNODE,_UDEV_DEVLINK,SYSLOG_FACILITY,SYSLOG_IDENTIFIER,SYSLOG_PID
+    # </formatter>
+    # formatters will be processed in the order specified, so make sure more specific matches
+    # come before more general matches
+    desc 'Formatters for common data model, for well known record types'
+    config_section :formatter, param_name: :formatters do
+      desc 'one of the well known formatter types'
+      config_param :type, :enum, list: [:sys_journal, :k8s_journal, :sys_var_log, :k8s_json_file]
+      desc 'process records with this tag pattern'
+      config_param :tag, :string
+      desc 'remove these keys from the record - same as record_transformer "remove_keys" field'
+      config_param :remove_keys, :string, default: nil
+    end
 
-    desc 'Process records matching this tag pattern as kubernetes journal records e.g. "kubernetes.journal.container**"'
-    config_param :journal_k8s_record_tag, :string, default: nil
-
-    desc 'Which part of the pipeline is this - collector, normalizer, etc.'
+    desc 'Which part of the pipeline is this - collector, normalizer, etc. for pipeline_metadata'
     config_param :pipeline_type, :enum, list: [:collector, :normalizer], default: :collector
-
-    desc 'Fields to remove from the record - same as record_transformer "remove_keys" field'
-    config_param :remove_keys, :string, default: 'log,stream,MESSAGE,_SOURCE_REALTIME_TIMESTAMP,__REALTIME_TIMESTAMP,CONTAINER_ID,CONTAINER_ID_FULL,CONTAINER_NAME,PRIORITY,_BOOT_ID,_CAP_EFFECTIVE,_CMDLINE,_COMM,_EXE,_GID,_HOSTNAME,_MACHINE_ID,_PID,_SELINUX_CONTEXT,_SYSTEMD_CGROUP,_SYSTEMD_SLICE,_SYSTEMD_UNIT,_TRANSPORT,_UID,_AUDIT_LOGINUID,_AUDIT_SESSION,_SYSTEMD_OWNER_UID,_SYSTEMD_SESSION,_SYSTEMD_USER_UNIT,CODE_FILE,CODE_FUNCTION,CODE_LINE,ERRNO,MESSAGE_ID,RESULT,UNIT,_KERNEL_DEVICE,_KERNEL_SUBSYSTEM,_UDEV_SYSNAME,_UDEV_DEVNODE,_UDEV_DEVLINK,SYSLOG_FACILITY,SYSLOG_IDENTIFIER,SYSLOG_PID'
 
     # e.g.
     # <elasticsearch_index_name>
@@ -138,15 +146,27 @@ module Fluent
       if (@rename_time || @rename_time_if_not_exist) && @use_undefined && !@keep_fields.key?(@src_time_name)
         raise Fluent::ConfigError, "Field [#{@src_time_name}] must be listed in default_keep_fields or extra_keep_fields"
       end
-      if @journal_system_record_tag
-        @journal_system_record_match = ViaqMatchClass.new(@journal_system_record_tag, nil)
-      else
-        @journal_system_record_match = nil
-      end
-      if @journal_k8s_record_tag
-        @journal_k8s_record_match = ViaqMatchClass.new(@journal_k8s_record_tag, nil)
-      else
-        @journal_k8s_record_match = nil
+      if @formatters
+        @formatters.each do |fmtr|
+          matcher = ViaqMatchClass.new(fmtr.tag, nil)
+          fmtr.instance_eval{ @params[:matcher] = matcher }
+          fmtr.instance_eval{ @params[:fmtr_type] = fmtr.type }
+          if fmtr.remove_keys
+            fmtr.instance_eval{ @params[:fmtr_remove_keys] = fmtr.remove_keys.split(',') }
+          else
+            fmtr.instance_eval{ @params[:fmtr_remove_keys] = nil }
+          end
+          if fmtr.type == :sys_journal || fmtr.type == :k8s_journal
+            fmtr_func = method(:process_journal_fields)
+          elsif fmtr.type == :sys_var_log
+            fmtr_func = method(:process_sys_var_log_fields)
+          elsif fmtr.type == :k8s_json_file
+            fmtr_func = method(:process_k8s_json_file_fields)
+          end
+          fmtr.instance_eval{ @params[:fmtr_func] = fmtr_func }
+        end
+        @formatter_cache = {}
+        @formatter_cache_nomatch = {}
       end
       begin
         @docker_hostname = File.open('/etc/docker-hostname') { |f| f.readline }.rstrip
@@ -156,11 +176,6 @@ module Fluent
       @ipaddr4 = ENV['IPADDR4'] || '127.0.0.1'
       @ipaddr6 = ENV['IPADDR6'] || '::1'
       @pipeline_version = (ENV['FLUENTD_VERSION'] || 'unknown fluentd version') + ' ' + (ENV['DATA_VERSION'] || 'unknown data version')
-      if @remove_keys
-        @remove_keys_list = @remove_keys.split(',')
-      else
-        @remove_keys_list = nil
-      end
       if @elasticsearch_index_field && @elasticsearch_index_names.empty?
         raise Fluent::ConfigError, "Field elasticsearch_index_field specified but no elasticsearch_index_name values were configured"
       end
@@ -252,56 +267,43 @@ module Fluent
 
     JOURNAL_TIME_FIELDS = ['_SOURCE_REALTIME_TIMESTAMP', '__REALTIME_TIMESTAMP']
 
-    def handle_journal_data(tag, time, record)
-      is_k8s_record = @journal_k8s_record_match && @journal_k8s_record_match.match(tag)
-      systemd_t = {}
-      JOURNAL_FIELD_MAP_SYSTEMD_T.each do |jkey, key|
-        if record[jkey]
-          systemd_t[key] = record[jkey]
+    def process_journal_fields(tag, time, record, fmtr_type)
+      reckeys = record.keys
+      reckeys.each do |jkey|
+        if key = JOURNAL_FIELD_MAP_SYSTEMD_T[jkey]
+          ((record['systemd'] ||= {})['t'] ||= {})[key] = record[jkey]
+        elsif key = JOURNAL_FIELD_MAP_SYSTEMD_U[jkey]
+          ((record['systemd'] ||= {})['u'] ||= {})[key] = record[jkey]
+        elsif key = JOURNAL_FIELD_MAP_SYSTEMD_K[jkey]
+          ((record['systemd'] ||= {})['k'] ||= {})[key] = record[jkey]
         end
       end
-      systemd_u = {}
-      JOURNAL_FIELD_MAP_SYSTEMD_U.each do |jkey, key|
-        if record[jkey]
-          systemd_u[key] = record[jkey]
-        end
-      end
-      systemd_k = {}
-      JOURNAL_FIELD_MAP_SYSTEMD_K.each do |jkey, key|
-        if record[jkey]
-          systemd_k[key] = record[jkey]
-        end
-      end
-      unless systemd_t.empty?
-        (record['systemd'] ||= {})['t'] = systemd_t
-      end
-      unless systemd_u.empty?
-        (record['systemd'] ||= {})['u'] = systemd_u
-      end
-      unless systemd_k.empty?
-        (record['systemd'] ||= {})['k'] = systemd_k
-      end
-
-      if is_k8s_record
-        record['message'] = record['message'] || record['MESSAGE'] || record['log']
-      else
-        record['message'] = record['MESSAGE']
-      end
-
       begin
         pri_index = ('%d' % record['PRIORITY'] || 9).to_i
         if pri_index < 0
           pri_index = 9
-        end
-        if pri_index > 9
+        elsif pri_index > 9
           pri_index = 9
         end
       rescue
         pri_index = 9
       end
       record['level'] = ["emerg", "alert", "crit", "err", "warning", "notice", "info", "debug", "trace", "unknown"][pri_index]
-
-      if is_k8s_record
+      JOURNAL_TIME_FIELDS.each do |field|
+        if record[field]
+          record['time'] = Time.at(record[field].to_f / 1000000.0).utc.to_datetime.rfc3339(6)
+          break
+        end
+      end
+      if fmtr_type == :sys_journal
+        record['message'] = record['MESSAGE']
+        if record['_HOSTNAME'].eql?('localhost') && @docker_hostname
+          record['hostname'] = @docker_hostname
+        else
+          record['hostname'] = record['_HOSTNAME']
+        end
+      elsif fmtr_type == :k8s_journal
+        record['message'] = record['message'] || record['MESSAGE'] || record['log']
         if record['kubernetes'] && record['kubernetes']['host']
           record['hostname'] = record['kubernetes']['host']
         elsif @docker_hostname
@@ -309,25 +311,62 @@ module Fluent
         else
           record['hostname'] = record['_HOSTNAME']
         end
-      else
-        if record['_HOSTNAME'].eql?('localhost') && @docker_hostname
-          record['hostname'] = @docker_hostname
-        else
-          record['hostname'] = record['_HOSTNAME']
-        end
       end
+    end
 
-      JOURNAL_TIME_FIELDS.each do |field|
-        if record[field]
-          record['time'] = Time.at(record[field].to_f / 1000000.0).utc.to_datetime.rfc3339(6)
-          break
+    def process_sys_var_log_fields(tag, time, record, fmtr_type = nil)
+      record['systemd'] = {"t" => {"PID" => record['pid']}, "u" => {"SYSLOG_IDENTIFIER" => record['ident']}}
+      rectime = record['time'] || time
+      # handle the case where the time reported in /var/log/messages is for a previous year
+      if Time.at(rectime) > Time.now
+        record['time'] = Time.new((rectime.year - 1), rectime.month, rectime.day, rectime.hour, rectime.min, rectime.sec, rectime.utc_offset).utc.to_datetime.rfc3339(6)
+      else
+        record['time'] = rectime.utc.to_datetime.rfc3339(6)
+      end
+      if record['host'].eql?('localhost') && @docker_hostname
+        record['hostname'] = @docker_hostname
+      else
+        record['hostname'] = record['host']
+      end
+    end
+
+    def process_k8s_json_file_fields(tag, time, record, fmtr_type = nil)
+      record['message'] = record['message'] || record['log']
+      record['level'] = (record['stream'] == 'stdout') ? 'info' : 'err'
+      if record['kubernetes'] && record['kubernetes']['host']
+        record['hostname'] = record['kubernetes']['host']
+      elsif @docker_hostname
+        record['hostname'] = @docker_hostname
+      end
+      record['time'] = record['time'].utc.to_datetime.rfc3339(6)
+    end
+
+    def check_for_match_and_format(tag, time, record)
+      return unless @formatters
+      return if @formatter_cache_nomatch[tag]
+      fmtr = @formatter_cache[tag]
+      unless fmtr
+        idx = @formatters.index{|fmtr| fmtr.matcher.match(tag)}
+        if idx
+          fmtr = @formatters[idx]
+          @formatter_cache[tag] = fmtr
+        else
+          @formatter_cache_nomatch[tag] = true
+          return
         end
       end
+      fmtr.fmtr_func.call(tag, time, record, fmtr.fmtr_type)
 
       if record['time'].nil?
         record['time'] = Time.at(time).utc.to_datetime.rfc3339(6)
       end
 
+      if fmtr.fmtr_remove_keys
+        fmtr.fmtr_remove_keys.each{|k| record.delete(k)}
+      end
+    end
+
+    def add_pipeline_metadata (tag, time, record)
       (record['pipeline_metadata'] ||= {})[@pipeline_type.to_s] = {
         "ipaddr4"     => @ipaddr4,
         "ipaddr6"     => @ipaddr6,
@@ -336,8 +375,6 @@ module Fluent
         "received_at" => Time.at(time).utc.to_datetime.rfc3339(6),
         "version"     => @pipeline_version
       }
-
-      @remove_keys_list.each{|k| record.delete(k)} if @remove_keys_list
     end
 
     def filter(tag, time, record)
@@ -347,10 +384,8 @@ module Fluent
         end
       end
 
-      if (@journal_system_record_match && @journal_system_record_match.match(tag)) ||
-         (@journal_k8s_record_match && @journal_k8s_record_match.match(tag))
-        handle_journal_data(tag, time, record)
-      end
+      check_for_match_and_format(tag, time, record)
+      add_pipeline_metadata(tag, time, record)
       if @use_undefined
         # undefined contains all of the fields not in keep_fields
         undefined = record.reject{|k,v| @keep_fields.key?(k)}
