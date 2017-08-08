@@ -6,7 +6,11 @@ rvm:
   - 2.3.1
 
 gemfile:
- - Gemfile
+  - Gemfile
+
+env:
+  - FLUENTD_VERSION=0.12.0
+  - FLUENTD_VERSION=0.14.0
 
 script: bundle exec rake test
 sudo: false
