@@ -22,6 +22,8 @@ require 'fluent/filter'
 require 'fluent/log'
 require 'fluent/match'
 
+require_relative 'filter_viaq_data_model_systemd'
+
 begin
   ViaqMatchClass = Fluent::Match
 rescue
@@ -38,10 +40,7 @@ rescue
       end
     end
     def match(tag)
-      if @pattern.match(tag)
-        return true
-      end
-      return false
+      @pattern.match(tag)
     end
     def to_s
       "#{@pattern}"
@@ -51,6 +50,7 @@ end
 
 module Fluent
   class ViaqDataModelFilter < Filter
+    include ViaqDataModelFilterSystemd
     Fluent::Plugin.register_filter('viaq_data_model', self)
 
     desc 'Default list of comma-delimited fields to keep in each record'
@@ -161,11 +161,12 @@ module Fluent
           else
             fmtr.instance_eval{ @params[:fmtr_remove_keys] = nil }
           end
-          if fmtr.type == :sys_journal || fmtr.type == :k8s_journal
+          case fmtr.type
+          when :sys_journal, :k8s_journal
             fmtr_func = method(:process_journal_fields)
-          elsif fmtr.type == :sys_var_log
+          when :sys_var_log
             fmtr_func = method(:process_sys_var_log_fields)
-          elsif fmtr.type == :k8s_json_file
+          when :k8s_json_file
             fmtr_func = method(:process_k8s_json_file_fields)
           end
           fmtr.instance_eval{ @params[:fmtr_func] = fmtr_func }
@@ -214,116 +215,6 @@ module Fluent
         end
       end
       thing
-    end
-
-    # map of journal fields to viaq data model field
-    JOURNAL_FIELD_MAP_SYSTEMD_T = {
-      "_AUDIT_LOGINUID"    => "AUDIT_LOGINUID",
-      "_AUDIT_SESSION"     => "AUDIT_SESSION",
-      "_BOOT_ID"           => "BOOT_ID",
-      "_CAP_EFFECTIVE"     => "CAP_EFFECTIVE",
-      "_CMDLINE"           => "CMDLINE",
-      "_COMM"              => "COMM",
-      "_EXE"               => "EXE",
-      "_GID"               => "GID",
-      "_MACHINE_ID"        => "MACHINE_ID",
-      "_PID"               => "PID",
-      "_SELINUX_CONTEXT"   => "SELINUX_CONTEXT",
-      "_SYSTEMD_CGROUP"    => "SYSTEMD_CGROUP",
-      "_SYSTEMD_OWNER_UID" => "SYSTEMD_OWNER_UID",
-      "_SYSTEMD_SESSION"   => "SYSTEMD_SESSION",
-      "_SYSTEMD_SLICE"     => "SYSTEMD_SLICE",
-      "_SYSTEMD_UNIT"      => "SYSTEMD_UNIT",
-      "_SYSTEMD_USER_UNIT" => "SYSTEMD_USER_UNIT",
-      "_TRANSPORT"         => "TRANSPORT",
-      "_UID"               => "UID"
-    }
-
-    JOURNAL_FIELD_MAP_SYSTEMD_U = {
-      "CODE_FILE"         => "CODE_FILE",
-      "CODE_FUNCTION"     => "CODE_FUNCTION",
-      "CODE_LINE"         => "CODE_LINE",
-      "ERRNO"             => "ERRNO",
-      "MESSAGE_ID"        => "MESSAGE_ID",
-      "RESULT"            => "RESULT",
-      "UNIT"              => "UNIT",
-      "SYSLOG_FACILITY"   => "SYSLOG_FACILITY",
-      "SYSLOG_IDENTIFIER" => "SYSLOG_IDENTIFIER",
-      "SYSLOG_PID"        => "SYSLOG_PID"
-    }
-
-    JOURNAL_FIELD_MAP_SYSTEMD_K = {
-      "_KERNEL_DEVICE"    => "KERNEL_DEVICE",
-      "_KERNEL_SUBSYSTEM" => "KERNEL_SUBSYSTEM",
-      "_UDEV_SYSNAME"     => "UDEV_SYSNAME",
-      "_UDEV_DEVNODE"     => "UDEV_DEVNODE",
-      "_UDEV_DEVLINK"     => "UDEV_DEVLINK",
-    }
-
-    JOURNAL_TIME_FIELDS = ['_SOURCE_REALTIME_TIMESTAMP', '__REALTIME_TIMESTAMP']
-
-    def process_journal_fields(tag, time, record, fmtr_type)
-      systemd_t = {}
-      JOURNAL_FIELD_MAP_SYSTEMD_T.each do |jkey, key|
-        if record[jkey]
-          systemd_t[key] = record[jkey]
-        end
-      end
-      systemd_u = {}
-      JOURNAL_FIELD_MAP_SYSTEMD_U.each do |jkey, key|
-        if record[jkey]
-          systemd_u[key] = record[jkey]
-        end
-      end
-      systemd_k = {}
-      JOURNAL_FIELD_MAP_SYSTEMD_K.each do |jkey, key|
-        if record[jkey]
-          systemd_k[key] = record[jkey]
-        end
-      end
-      unless systemd_t.empty?
-        (record['systemd'] ||= {})['t'] = systemd_t
-      end
-      unless systemd_u.empty?
-        (record['systemd'] ||= {})['u'] = systemd_u
-      end
-      unless systemd_k.empty?
-        (record['systemd'] ||= {})['k'] = systemd_k
-      end
-      begin
-        pri_index = ('%d' % record['PRIORITY'] || 9).to_i
-        if pri_index < 0
-          pri_index = 9
-        elsif pri_index > 9
-          pri_index = 9
-        end
-      rescue
-        pri_index = 9
-      end
-      record['level'] = ["emerg", "alert", "crit", "err", "warning", "notice", "info", "debug", "trace", "unknown"][pri_index]
-      JOURNAL_TIME_FIELDS.each do |field|
-        if record[field]
-          record['time'] = Time.at(record[field].to_f / 1000000.0).utc.to_datetime.rfc3339(6)
-          break
-        end
-      end
-      if fmtr_type == :sys_journal
-        record['message'] = record['MESSAGE']
-        if record['_HOSTNAME'].eql?('localhost') && @docker_hostname
-          record['hostname'] = @docker_hostname
-        else
-          record['hostname'] = record['_HOSTNAME']
-        end
-      elsif fmtr_type == :k8s_journal
-        record['message'] = record['message'] || record['MESSAGE'] || record['log']
-        if record['kubernetes'] && record['kubernetes']['host']
-          record['hostname'] = record['kubernetes']['host']
-        elsif @docker_hostname
-          record['hostname'] = @docker_hostname
-        else
-          record['hostname'] = record['_HOSTNAME']
-        end
-      end
     end
 
     def process_sys_var_log_fields(tag, time, record, fmtr_type = nil)
@@ -402,9 +293,10 @@ module Fluent
             need_time = false
           end
 
-          if ein.name_type == :operations_full || ein.name_type == :operations_prefix
+          case ein.name_type
+          when :operations_full, :operations_prefix
             prefix = ".operations"
-          elsif ein.name_type == :project_full || ein.name_type == :project_prefix
+          when :project_full, :project_prefix
             if (k8s = record['kubernetes']).nil?
               log.error("record cannot use elasticsearch index name type #{ein.name_type}: record is missing kubernetes field: #{record}")
               break
