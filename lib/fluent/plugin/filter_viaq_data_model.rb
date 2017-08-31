@@ -99,6 +99,8 @@ module Fluent
     # come before more general matches
     desc 'Formatters for common data model, for well known record types'
     config_section :formatter, param_name: :formatters do
+      desc 'is this formatter enabled?'
+      config_param :enabled, :bool, default: true
       desc 'one of the well known formatter types'
       config_param :type, :enum, list: [:sys_journal, :k8s_journal, :sys_var_log, :k8s_json_file]
       desc 'process records with this tag pattern'
@@ -127,7 +129,11 @@ module Fluent
     # come before more general matches e.g. make sure tag "**" is last
     desc 'Construct Elasticsearch index names or prefixes based on the matching tags pattern and type'
     config_section :elasticsearch_index_name, param_name: :elasticsearch_index_names do
+      desc 'is this index name enabled?'
+      config_param :enabled, :bool, default: true
+      desc 'create index names for records with this tag pattern'
       config_param :tag, :string
+      desc 'type of index name to create'
       config_param :name_type, :enum, list: [:operations_full, :project_full, :operations_prefix, :project_prefix]
     end
     desc 'Store the Elasticsearch index name in this field'
@@ -250,8 +256,7 @@ module Fluent
       fmtr = @formatter_cache[tag]
       unless fmtr
         idx = @formatters.index{|fmtr| fmtr.matcher.match(tag)}
-        if idx
-          fmtr = @formatters[idx]
+        if idx && (fmtr = @formatters[idx]).enabled
           @formatter_cache[tag] = fmtr
         else
           @formatter_cache_nomatch[tag] = true
@@ -285,6 +290,7 @@ module Fluent
       @elasticsearch_index_names.each do |ein|
         if ein.matcher.match(tag)
           found = true
+          return unless ein.enabled
           if ein.name_type == :operations_full || ein.name_type == :project_full
             field_name = @elasticsearch_index_name_field
             need_time = true
@@ -333,7 +339,11 @@ module Fluent
         end
       end
       unless found
-        log.warn("no match for tag #{tag}")
+        if ENV['CDM_DEBUG']
+          unless tag == ENV['CDM_DEBUG_IGNORE_TAG']
+            log.error("no match for tag #{tag}")
+          end
+        end
       end
     end
 
