@@ -18,6 +18,7 @@
 #
 #require_relative '../helper'
 require 'fluent/test'
+require 'flexmock/test_unit'
 
 require 'fluent/plugin/filter_viaq_data_model'
 
@@ -28,6 +29,9 @@ class ViaqDataModelFilterTest < Test::Unit::TestCase
     Fluent::Test.setup
     @time = Fluent::Engine.now
     log = Fluent::Engine.log
+    @timestamp = Time.now
+    @timestamp_str = @timestamp.utc.to_datetime.rfc3339(6)
+    flexmock(Time).should_receive(:now).and_return(@timestamp)
   end
 
   def create_driver(conf = '')
@@ -368,7 +372,7 @@ class ViaqDataModelFilterTest < Test::Unit::TestCase
       assert_equal('fluent-plugin-systemd', rec['pipeline_metadata']['normalizer']['inputname'])
       assert_equal('fluentd', rec['pipeline_metadata']['normalizer']['name'])
       assert_equal('fversion dversion', rec['pipeline_metadata']['normalizer']['version'])
-      assert_equal(Time.at(@time).utc.to_datetime.rfc3339(6), rec['pipeline_metadata']['normalizer']['received_at'])
+      assert_equal(@timestamp_str, rec['pipeline_metadata']['normalizer']['received_at'])
       dellist = 'log,stream,MESSAGE,_SOURCE_REALTIME_TIMESTAMP,__REALTIME_TIMESTAMP,CONTAINER_ID,CONTAINER_ID_FULL,CONTAINER_NAME,PRIORITY,_BOOT_ID,_CAP_EFFECTIVE,_CMDLINE,_COMM,_EXE,_GID,_HOSTNAME,_MACHINE_ID,_PID,_SELINUX_CONTEXT,_SYSTEMD_CGROUP,_SYSTEMD_SLICE,_SYSTEMD_UNIT,_TRANSPORT,_UID,_AUDIT_LOGINUID,_AUDIT_SESSION,_SYSTEMD_OWNER_UID,_SYSTEMD_SESSION,_SYSTEMD_USER_UNIT,CODE_FILE,CODE_FUNCTION,CODE_LINE,ERRNO,MESSAGE_ID,RESULT,UNIT,_KERNEL_DEVICE,_KERNEL_SUBSYSTEM,_UDEV_SYSNAME,_UDEV_DEVNODE,_UDEV_DEVLINK,SYSLOG_FACILITY,SYSLOG_IDENTIFIER,SYSLOG_PID'.split(',')
       dellist.each{|field| assert_nil(rec[field])}
     end
@@ -415,7 +419,7 @@ class ViaqDataModelFilterTest < Test::Unit::TestCase
       assert_equal('fluent-plugin-systemd', rec['pipeline_metadata']['normalizer']['inputname'])
       assert_equal('fluentd', rec['pipeline_metadata']['normalizer']['name'])
       assert_equal('fversion dversion', rec['pipeline_metadata']['normalizer']['version'])
-      assert_equal(Time.at(@time).utc.to_datetime.rfc3339(6), rec['pipeline_metadata']['normalizer']['received_at'])
+      assert_equal(@timestamp_str, rec['pipeline_metadata']['normalizer']['received_at'])
       keeplist = 'log,stream,MESSAGE,_SOURCE_REALTIME_TIMESTAMP,__REALTIME_TIMESTAMP,CONTAINER_ID,CONTAINER_ID_FULL,_BOOT_ID,_CAP_EFFECTIVE,_CMDLINE,_COMM,_EXE,_GID,_HOSTNAME,_MACHINE_ID,_PID,_SELINUX_CONTEXT,_SYSTEMD_CGROUP,_SYSTEMD_SLICE,_SYSTEMD_UNIT,_TRANSPORT,_UID,_AUDIT_LOGINUID,_AUDIT_SESSION,_SYSTEMD_OWNER_UID,_SYSTEMD_SESSION,_SYSTEMD_USER_UNIT,CODE_FILE,CODE_FUNCTION,CODE_LINE,ERRNO,MESSAGE_ID,RESULT,UNIT,_KERNEL_DEVICE,_KERNEL_SUBSYSTEM,_UDEV_SYSNAME,_UDEV_DEVNODE,_UDEV_DEVLINK,SYSLOG_FACILITY,SYSLOG_IDENTIFIER,SYSLOG_PID'.split(',')
       keeplist.each{|field| normal_input[field] && assert_not_nil(rec[field])}
       dellist = 'CONTAINER_NAME,PRIORITY'.split(',')
@@ -508,7 +512,7 @@ class ViaqDataModelFilterTest < Test::Unit::TestCase
       assert_equal('fluent-plugin-systemd', rec['pipeline_metadata']['normalizer']['inputname'])
       assert_equal('fluentd', rec['pipeline_metadata']['normalizer']['name'])
       assert_equal('fversion dversion', rec['pipeline_metadata']['normalizer']['version'])
-      assert_equal(Time.at(@time).utc.to_datetime.rfc3339(6), rec['pipeline_metadata']['normalizer']['received_at'])
+      assert_equal(@timestamp_str, rec['pipeline_metadata']['normalizer']['received_at'])
       dellist = 'log,stream,MESSAGE,_SOURCE_REALTIME_TIMESTAMP,__REALTIME_TIMESTAMP,CONTAINER_ID,CONTAINER_ID_FULL,CONTAINER_NAME,PRIORITY,_BOOT_ID,_CAP_EFFECTIVE,_CMDLINE,_COMM,_EXE,_GID,_HOSTNAME,_MACHINE_ID,_PID,_SELINUX_CONTEXT,_SYSTEMD_CGROUP,_SYSTEMD_SLICE,_SYSTEMD_UNIT,_TRANSPORT,_UID,_AUDIT_LOGINUID,_AUDIT_SESSION,_SYSTEMD_OWNER_UID,_SYSTEMD_SESSION,_SYSTEMD_USER_UNIT,CODE_FILE,CODE_FUNCTION,CODE_LINE,ERRNO,MESSAGE_ID,RESULT,UNIT,_KERNEL_DEVICE,_KERNEL_SUBSYSTEM,_UDEV_SYSNAME,_UDEV_DEVNODE,_UDEV_DEVLINK,SYSLOG_FACILITY,SYSLOG_IDENTIFIER,SYSLOG_PID'.split(',')
       dellist.each{|field| assert_nil(rec[field])}
     end
@@ -557,7 +561,7 @@ class ViaqDataModelFilterTest < Test::Unit::TestCase
       assert_equal('fluent-plugin-systemd', rec['pipeline_metadata']['normalizer']['inputname'])
       assert_equal('fluentd', rec['pipeline_metadata']['normalizer']['name'])
       assert_equal('fversion dversion', rec['pipeline_metadata']['normalizer']['version'])
-      assert_equal(Time.at(@time).utc.to_datetime.rfc3339(6), rec['pipeline_metadata']['normalizer']['received_at'])
+      assert_equal(@timestamp_str, rec['pipeline_metadata']['normalizer']['received_at'])
       dellist = 'log,stream,MESSAGE,_SOURCE_REALTIME_TIMESTAMP,__REALTIME_TIMESTAMP,CONTAINER_ID,CONTAINER_ID_FULL,CONTAINER_NAME,PRIORITY,_BOOT_ID,_CAP_EFFECTIVE,_CMDLINE,_COMM,_EXE,_GID,_HOSTNAME,_MACHINE_ID,_PID,_SELINUX_CONTEXT,_SYSTEMD_CGROUP,_SYSTEMD_SLICE,_SYSTEMD_UNIT,_TRANSPORT,_UID,_AUDIT_LOGINUID,_AUDIT_SESSION,_SYSTEMD_OWNER_UID,_SYSTEMD_SESSION,_SYSTEMD_USER_UNIT,CODE_FILE,CODE_FUNCTION,CODE_LINE,ERRNO,MESSAGE_ID,RESULT,UNIT,_KERNEL_DEVICE,_KERNEL_SUBSYSTEM,_UDEV_SYSNAME,_UDEV_DEVNODE,_UDEV_DEVLINK,SYSLOG_FACILITY,SYSLOG_IDENTIFIER,SYSLOG_PID'.split(',')
       dellist.each{|field| assert_nil(rec[field])}
     end
@@ -588,7 +592,7 @@ class ViaqDataModelFilterTest < Test::Unit::TestCase
       assert_equal('fluent-plugin-systemd', rec['pipeline_metadata']['normalizer']['inputname'])
       assert_equal('fluentd', rec['pipeline_metadata']['normalizer']['name'])
       assert_equal('fversion dversion', rec['pipeline_metadata']['normalizer']['version'])
-      assert_equal(Time.at(@time).utc.to_datetime.rfc3339(6), rec['pipeline_metadata']['normalizer']['received_at'])
+      assert_equal(@timestamp_str, rec['pipeline_metadata']['normalizer']['received_at'])
       dellist = 'log,stream,MESSAGE,_SOURCE_REALTIME_TIMESTAMP,__REALTIME_TIMESTAMP,CONTAINER_ID,CONTAINER_ID_FULL,CONTAINER_NAME,PRIORITY,_BOOT_ID,_CAP_EFFECTIVE,_CMDLINE,_COMM,_EXE,_GID,_HOSTNAME,_MACHINE_ID,_PID,_SELINUX_CONTEXT,_SYSTEMD_CGROUP,_SYSTEMD_SLICE,_SYSTEMD_UNIT,_TRANSPORT,_UID,_AUDIT_LOGINUID,_AUDIT_SESSION,_SYSTEMD_OWNER_UID,_SYSTEMD_SESSION,_SYSTEMD_USER_UNIT,CODE_FILE,CODE_FUNCTION,CODE_LINE,ERRNO,MESSAGE_ID,RESULT,UNIT,_KERNEL_DEVICE,_KERNEL_SUBSYSTEM,_UDEV_SYSNAME,_UDEV_DEVNODE,_UDEV_DEVLINK,SYSLOG_FACILITY,SYSLOG_IDENTIFIER,SYSLOG_PID'.split(',')
       dellist.each{|field| assert_nil(rec[field])}
     end
@@ -617,7 +621,7 @@ class ViaqDataModelFilterTest < Test::Unit::TestCase
       assert_equal('fluent-plugin-systemd', rec['pipeline_metadata']['normalizer']['inputname'])
       assert_equal('fluentd', rec['pipeline_metadata']['normalizer']['name'])
       assert_equal('fversion dversion', rec['pipeline_metadata']['normalizer']['version'])
-      assert_equal(Time.at(@time).utc.to_datetime.rfc3339(6), rec['pipeline_metadata']['normalizer']['received_at'])
+      assert_equal(@timestamp_str, rec['pipeline_metadata']['normalizer']['received_at'])
       dellist = 'host,pid,ident'.split(',')
       dellist.each{|field| assert_nil(rec[field])}
     end
@@ -648,7 +652,7 @@ class ViaqDataModelFilterTest < Test::Unit::TestCase
       assert_equal('fluent-plugin-systemd', rec['pipeline_metadata']['normalizer']['inputname'])
       assert_equal('fluentd', rec['pipeline_metadata']['normalizer']['name'])
       assert_equal('fversion dversion', rec['pipeline_metadata']['normalizer']['version'])
-      assert_equal(Time.at(@time).utc.to_datetime.rfc3339(6), rec['pipeline_metadata']['normalizer']['received_at'])
+      assert_equal(@timestamp_str, rec['pipeline_metadata']['normalizer']['received_at'])
       dellist = 'host,pid,ident'.split(',')
       dellist.each{|field| assert_nil(rec[field])}
     end
@@ -676,7 +680,7 @@ class ViaqDataModelFilterTest < Test::Unit::TestCase
       assert_equal('fluent-plugin-systemd', rec['pipeline_metadata']['normalizer']['inputname'])
       assert_equal('fluentd', rec['pipeline_metadata']['normalizer']['name'])
       assert_equal('fversion dversion', rec['pipeline_metadata']['normalizer']['version'])
-      assert_equal(Time.at(@time).utc.to_datetime.rfc3339(6), rec['pipeline_metadata']['normalizer']['received_at'])
+      assert_equal(@timestamp_str, rec['pipeline_metadata']['normalizer']['received_at'])
       dellist = 'host,pid,ident'.split(',')
       dellist.each{|field| assert_nil(rec[field])}
     end

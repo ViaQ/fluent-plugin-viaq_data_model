@@ -225,12 +225,14 @@ module Fluent
 
     def process_sys_var_log_fields(tag, time, record, fmtr_type = nil)
       record['systemd'] = {"t" => {"PID" => record['pid']}, "u" => {"SYSLOG_IDENTIFIER" => record['ident']}}
-      rectime = record['time'] || time
-      # handle the case where the time reported in /var/log/messages is for a previous year
-      if Time.at(rectime) > Time.now
-        record['time'] = Time.new((rectime.year - 1), rectime.month, rectime.day, rectime.hour, rectime.min, rectime.sec, rectime.utc_offset).utc.to_datetime.rfc3339(6)
-      else
-        record['time'] = rectime.utc.to_datetime.rfc3339(6)
+      unless record[@dest_time_name] # e.g. already has @timestamp
+        rectime = record['time'] || time
+        # handle the case where the time reported in /var/log/messages is for a previous year
+        if Time.at(rectime) > Time.now
+          record['time'] = Time.new((rectime.year - 1), rectime.month, rectime.day, rectime.hour, rectime.min, rectime.sec, rectime.utc_offset).utc.to_datetime.rfc3339(6)
+        else
+          record['time'] = rectime.utc.to_datetime.rfc3339(6)
+        end
       end
       if record['host'].eql?('localhost') && @docker_hostname
         record['hostname'] = @docker_hostname
@@ -247,7 +249,9 @@ module Fluent
       elsif @docker_hostname
         record['hostname'] = @docker_hostname
       end
-      record['time'] = record['time'].utc.to_datetime.rfc3339(6)
+      unless record[@dest_time_name] # e.g. already has @timestamp
+        record['time'] = record['time'].utc.to_datetime.rfc3339(6)
+      end
     end
 
     def check_for_match_and_format(tag, time, record)
@@ -265,7 +269,7 @@ module Fluent
       end
       fmtr.fmtr_func.call(tag, time, record, fmtr.fmtr_type)
 
-      if record['time'].nil?
+      if record[@dest_time_name].nil? && record['time'].nil?
         record['time'] = Time.at(time).utc.to_datetime.rfc3339(6)
       end
 
@@ -280,7 +284,7 @@ module Fluent
         "ipaddr6"     => @ipaddr6,
         "inputname"   => "fluent-plugin-systemd",
         "name"        => "fluentd",
-        "received_at" => Time.at(time).utc.to_datetime.rfc3339(6),
+        "received_at" => Time.now.utc.to_datetime.rfc3339(6),
         "version"     => @pipeline_version
       }
     end
