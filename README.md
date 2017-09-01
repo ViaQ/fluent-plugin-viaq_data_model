@@ -96,6 +96,9 @@ See `filter-viaq_data_model.conf` for an example filter configuration.
   * This is the name of the top level field to hold the time value.  The value
   is taken from the value of the `src_time_name` field.
 * `formatter` - a formatter for a well known common data model source
+  * `enabled` - default `true` - is this formatter enabled?  **NOTE** if the
+    formatter is disabled, it will still match, it just won't do anything, and
+    it will skip the other formatters.
   * `type` - one of the well known sources
     * `sys_journal` - a record read from the systemd journal
     * `k8s_journal` - a Kubernetes container record read from the systemd
@@ -109,6 +112,9 @@ See `filter-viaq_data_model.conf` for an example filter configuration.
   `normalizer` - the default is `collector`
 * `elasticsearch_index_name` - how to construct Elasticsearch index names or
   prefixes for given tags
+  * `enabled` - default `true` - is this item enabled?  **NOTE** if the
+    item is disabled, it will still match, it just won't do anything, and
+    it will skip the other index name items.
   * `tag` - the Fluentd tag pattern to match for these records
   * `name_type` - the well known type of index name or prefix to create -
     `operations_full, project_full, operations_prefix, project_prefix` - The
@@ -231,7 +237,6 @@ Given a configuration like this:
       tag "**"
       name_type project_full
     </elasticsearch_index_name>
-    elasticsearch_index_field viaq_index_name
 
 A record with tag `journal.system` like this:
 
@@ -245,6 +250,54 @@ will end up looking like this:
       "@timestamp":"2017-07-27T17:27:46.216527+00:00",
       "viaq_index_name":".operations.2017.07.07"
     }
+
+A record with tag `kubernetes.journal.container` like this:
+
+    {
+      "@timestamp":"2017-07-27T17:27:46.216527+00:00",
+      "kubernetes":{"namespace_name":"myproject","namespace_id":"000000"}
+    }
+
+will end up looking like this:
+
+    {
+      "@timestamp":"2017-07-27T17:27:46.216527+00:00",
+      "kubernetes":{"namespace_name":"myproject","namespace_id":"000000"}
+      "viaq_index_name":"project.myproject.000000.2017.07.07"
+    }
+
+
+### Note about using enabled false
+
+Given a configuration like this:
+
+    <elasticsearch_index_name>
+      enabled false
+      tag "journal.system** system.var.log** **_default_** **_openshift_** **_openshift-infra_** mux.ops"
+      name_type operations_full
+    </elasticsearch_index_name>
+    <elasticsearch_index_name>
+      tag "**"
+      name_type project_full
+    </elasticsearch_index_name>
+
+A record with tag `journal.system` like this:
+
+    {
+      "@timestamp":"2017-07-27T17:27:46.216527+00:00"
+    }
+
+will end up looking like this:
+
+    {
+      "@timestamp":"2017-07-27T17:27:46.216527+00:00",
+    }
+
+That is, the tag will match the first `elasticsearch_index_name`, but since it
+is disabled, no index name will be created, and it will _not_ fall through to
+the `**` match below.  Using `enabled false` in this case allows you to not
+generate index names for operations indices, but still continue to generate
+index names for project indices.
 
 A record with tag `kubernetes.journal.container` like this:
 

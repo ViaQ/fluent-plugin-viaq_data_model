@@ -99,6 +99,8 @@ module Fluent
     # come before more general matches
     desc 'Formatters for common data model, for well known record types'
     config_section :formatter, param_name: :formatters do
+      desc 'is this formatter enabled?'
+      config_param :enabled, :bool, default: true
       desc 'one of the well known formatter types'
       config_param :type, :enum, list: [:sys_journal, :k8s_journal, :sys_var_log, :k8s_json_file]
       desc 'process records with this tag pattern'
@@ -127,7 +129,11 @@ module Fluent
     # come before more general matches e.g. make sure tag "**" is last
     desc 'Construct Elasticsearch index names or prefixes based on the matching tags pattern and type'
     config_section :elasticsearch_index_name, param_name: :elasticsearch_index_names do
+      desc 'is this index name enabled?'
+      config_param :enabled, :bool, default: true
+      desc 'create index names for records with this tag pattern'
       config_param :tag, :string
+      desc 'type of index name to create'
       config_param :name_type, :enum, list: [:operations_full, :project_full, :operations_prefix, :project_prefix]
     end
     desc 'Store the Elasticsearch index name in this field'
@@ -219,12 +225,14 @@ module Fluent
 
     def process_sys_var_log_fields(tag, time, record, fmtr_type = nil)
       record['systemd'] = {"t" => {"PID" => record['pid']}, "u" => {"SYSLOG_IDENTIFIER" => record['ident']}}
-      rectime = record['time'] || time
-      # handle the case where the time reported in /var/log/messages is for a previous year
-      if Time.at(rectime) > Time.now
-        record['time'] = Time.new((rectime.year - 1), rectime.month, rectime.day, rectime.hour, rectime.min, rectime.sec, rectime.utc_offset).utc.to_datetime.rfc3339(6)
-      else
-        record['time'] = rectime.utc.to_datetime.rfc3339(6)
+      unless record[@dest_time_name] # e.g. already has @timestamp
+        rectime = record['time'] || time
+        # handle the case where the time reported in /var/log/messages is for a previous year
+        if Time.at(rectime) > Time.now
+          record['time'] = Time.new((rectime.year - 1), rectime.month, rectime.day, rectime.hour, rectime.min, rectime.sec, rectime.utc_offset).utc.to_datetime.rfc3339(6)
+        else
+          record['time'] = rectime.utc.to_datetime.rfc3339(6)
+        end
       end
       if record['host'].eql?('localhost') && @docker_hostname
         record['hostname'] = @docker_hostname
@@ -241,7 +249,9 @@ module Fluent
       elsif @docker_hostname
         record['hostname'] = @docker_hostname
       end
-      record['time'] = record['time'].utc.to_datetime.rfc3339(6)
+      unless record[@dest_time_name] # e.g. already has @timestamp
+        record['time'] = record['time'].utc.to_datetime.rfc3339(6)
+      end
     end
 
     def check_for_match_and_format(tag, time, record)
@@ -250,8 +260,7 @@ module Fluent
       fmtr = @formatter_cache[tag]
       unless fmtr
         idx = @formatters.index{|fmtr| fmtr.matcher.match(tag)}
-        if idx
-          fmtr = @formatters[idx]
+        if idx && (fmtr = @formatters[idx]).enabled
           @formatter_cache[tag] = fmtr
         else
           @formatter_cache_nomatch[tag] = true
@@ -260,7 +269,7 @@ module Fluent
       end
       fmtr.fmtr_func.call(tag, time, record, fmtr.fmtr_type)
 
-      if record['time'].nil?
+      if record[@dest_time_name].nil? && record['time'].nil?
         record['time'] = Time.at(time).utc.to_datetime.rfc3339(6)
       end
 
@@ -275,7 +284,7 @@ module Fluent
         "ipaddr6"     => @ipaddr6,
         "inputname"   => "fluent-plugin-systemd",
         "name"        => "fluentd",
-        "received_at" => Time.at(time).utc.to_datetime.rfc3339(6),
+        "received_at" => Time.now.utc.to_datetime.rfc3339(6),
         "version"     => @pipeline_version
       }
     end
@@ -285,6 +294,7 @@ module Fluent
       @elasticsearch_index_names.each do |ein|
         if ein.matcher.match(tag)
           found = true
+          return unless ein.enabled
           if ein.name_type == :operations_full || ein.name_type == :project_full
             field_name = @elasticsearch_index_name_field
             need_time = true
@@ -333,7 +343,11 @@ module Fluent
         end
       end
       unless found
-        log.warn("no match for tag #{tag}")
+        if ENV['CDM_DEBUG']
+          unless tag == ENV['CDM_DEBUG_IGNORE_TAG']
+            log.error("no match for tag #{tag}")
+          end
+        end
       end
     end
 

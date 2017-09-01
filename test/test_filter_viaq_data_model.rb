@@ -18,6 +18,7 @@
 #
 #require_relative '../helper'
 require 'fluent/test'
+require 'flexmock/test_unit'
 
 require 'fluent/plugin/filter_viaq_data_model'
 
@@ -28,6 +29,9 @@ class ViaqDataModelFilterTest < Test::Unit::TestCase
     Fluent::Test.setup
     @time = Fluent::Engine.now
     log = Fluent::Engine.log
+    @timestamp = Time.now
+    @timestamp_str = @timestamp.utc.to_datetime.rfc3339(6)
+    flexmock(Time).should_receive(:now).and_return(@timestamp)
   end
 
   def create_driver(conf = '')
@@ -368,9 +372,27 @@ class ViaqDataModelFilterTest < Test::Unit::TestCase
       assert_equal('fluent-plugin-systemd', rec['pipeline_metadata']['normalizer']['inputname'])
       assert_equal('fluentd', rec['pipeline_metadata']['normalizer']['name'])
       assert_equal('fversion dversion', rec['pipeline_metadata']['normalizer']['version'])
-      assert_equal(Time.at(@time).utc.to_datetime.rfc3339(6), rec['pipeline_metadata']['normalizer']['received_at'])
+      assert_equal(@timestamp_str, rec['pipeline_metadata']['normalizer']['received_at'])
       dellist = 'log,stream,MESSAGE,_SOURCE_REALTIME_TIMESTAMP,__REALTIME_TIMESTAMP,CONTAINER_ID,CONTAINER_ID_FULL,CONTAINER_NAME,PRIORITY,_BOOT_ID,_CAP_EFFECTIVE,_CMDLINE,_COMM,_EXE,_GID,_HOSTNAME,_MACHINE_ID,_PID,_SELINUX_CONTEXT,_SYSTEMD_CGROUP,_SYSTEMD_SLICE,_SYSTEMD_UNIT,_TRANSPORT,_UID,_AUDIT_LOGINUID,_AUDIT_SESSION,_SYSTEMD_OWNER_UID,_SYSTEMD_SESSION,_SYSTEMD_USER_UNIT,CODE_FILE,CODE_FUNCTION,CODE_LINE,ERRNO,MESSAGE_ID,RESULT,UNIT,_KERNEL_DEVICE,_KERNEL_SUBSYSTEM,_UDEV_SYSNAME,_UDEV_DEVNODE,_UDEV_DEVLINK,SYSLOG_FACILITY,SYSLOG_IDENTIFIER,SYSLOG_PID'.split(',')
       dellist.each{|field| assert_nil(rec[field])}
+    end
+    test 'disable journal record processing' do
+      ENV['IPADDR4'] = '127.0.0.1'
+      ENV['IPADDR6'] = '::1'
+      ENV['FLUENTD_VERSION'] = 'fversion'
+      ENV['DATA_VERSION'] = 'dversion'
+      rec = emit_with_tag('journal.system', normal_input, '
+        <formatter>
+          enabled false
+          tag "journal.system**"
+          type sys_journal
+          remove_keys log,stream,MESSAGE,_SOURCE_REALTIME_TIMESTAMP,__REALTIME_TIMESTAMP,CONTAINER_ID,CONTAINER_ID_FULL,CONTAINER_NAME,PRIORITY,_BOOT_ID,_CAP_EFFECTIVE,_CMDLINE,_COMM,_EXE,_GID,_HOSTNAME,_MACHINE_ID,_PID,_SELINUX_CONTEXT,_SYSTEMD_CGROUP,_SYSTEMD_SLICE,_SYSTEMD_UNIT,_TRANSPORT,_UID,_AUDIT_LOGINUID,_AUDIT_SESSION,_SYSTEMD_OWNER_UID,_SYSTEMD_SESSION,_SYSTEMD_USER_UNIT,CODE_FILE,CODE_FUNCTION,CODE_LINE,ERRNO,MESSAGE_ID,RESULT,UNIT,_KERNEL_DEVICE,_KERNEL_SUBSYSTEM,_UDEV_SYSNAME,_UDEV_DEVNODE,_UDEV_DEVLINK,SYSLOG_FACILITY,SYSLOG_IDENTIFIER,SYSLOG_PID
+        </formatter>
+        pipeline_type normalizer
+      ')
+      assert_nil(rec['systemd'])
+      notdellist = 'log,stream,MESSAGE,_SOURCE_REALTIME_TIMESTAMP,__REALTIME_TIMESTAMP,CONTAINER_ID,CONTAINER_ID_FULL,CONTAINER_NAME,PRIORITY,_BOOT_ID,_CAP_EFFECTIVE,_CMDLINE,_COMM,_EXE,_GID,_HOSTNAME,_MACHINE_ID,_PID,_SELINUX_CONTEXT,_SYSTEMD_CGROUP,_SYSTEMD_SLICE,_SYSTEMD_UNIT,_TRANSPORT,_UID,_AUDIT_LOGINUID,_AUDIT_SESSION,_SYSTEMD_OWNER_UID,_SYSTEMD_SESSION,_SYSTEMD_USER_UNIT,CODE_FILE,CODE_FUNCTION,CODE_LINE,ERRNO,MESSAGE_ID,RESULT,UNIT,_KERNEL_DEVICE,_KERNEL_SUBSYSTEM,_UDEV_SYSNAME,_UDEV_DEVNODE,_UDEV_DEVLINK,SYSLOG_FACILITY,SYSLOG_IDENTIFIER,SYSLOG_PID'.split(',')
+      notdellist.each{|field| assert_equal(normal_input[field], rec[field])}
     end
     test 'process a journal record, override remove_keys' do
       ENV['IPADDR4'] = '127.0.0.1'
@@ -397,7 +419,7 @@ class ViaqDataModelFilterTest < Test::Unit::TestCase
       assert_equal('fluent-plugin-systemd', rec['pipeline_metadata']['normalizer']['inputname'])
       assert_equal('fluentd', rec['pipeline_metadata']['normalizer']['name'])
       assert_equal('fversion dversion', rec['pipeline_metadata']['normalizer']['version'])
-      assert_equal(Time.at(@time).utc.to_datetime.rfc3339(6), rec['pipeline_metadata']['normalizer']['received_at'])
+      assert_equal(@timestamp_str, rec['pipeline_metadata']['normalizer']['received_at'])
       keeplist = 'log,stream,MESSAGE,_SOURCE_REALTIME_TIMESTAMP,__REALTIME_TIMESTAMP,CONTAINER_ID,CONTAINER_ID_FULL,_BOOT_ID,_CAP_EFFECTIVE,_CMDLINE,_COMM,_EXE,_GID,_HOSTNAME,_MACHINE_ID,_PID,_SELINUX_CONTEXT,_SYSTEMD_CGROUP,_SYSTEMD_SLICE,_SYSTEMD_UNIT,_TRANSPORT,_UID,_AUDIT_LOGINUID,_AUDIT_SESSION,_SYSTEMD_OWNER_UID,_SYSTEMD_SESSION,_SYSTEMD_USER_UNIT,CODE_FILE,CODE_FUNCTION,CODE_LINE,ERRNO,MESSAGE_ID,RESULT,UNIT,_KERNEL_DEVICE,_KERNEL_SUBSYSTEM,_UDEV_SYSNAME,_UDEV_DEVNODE,_UDEV_DEVLINK,SYSLOG_FACILITY,SYSLOG_IDENTIFIER,SYSLOG_PID'.split(',')
       keeplist.each{|field| normal_input[field] && assert_not_nil(rec[field])}
       dellist = 'CONTAINER_NAME,PRIORITY'.split(',')
@@ -490,9 +512,27 @@ class ViaqDataModelFilterTest < Test::Unit::TestCase
       assert_equal('fluent-plugin-systemd', rec['pipeline_metadata']['normalizer']['inputname'])
       assert_equal('fluentd', rec['pipeline_metadata']['normalizer']['name'])
       assert_equal('fversion dversion', rec['pipeline_metadata']['normalizer']['version'])
-      assert_equal(Time.at(@time).utc.to_datetime.rfc3339(6), rec['pipeline_metadata']['normalizer']['received_at'])
+      assert_equal(@timestamp_str, rec['pipeline_metadata']['normalizer']['received_at'])
       dellist = 'log,stream,MESSAGE,_SOURCE_REALTIME_TIMESTAMP,__REALTIME_TIMESTAMP,CONTAINER_ID,CONTAINER_ID_FULL,CONTAINER_NAME,PRIORITY,_BOOT_ID,_CAP_EFFECTIVE,_CMDLINE,_COMM,_EXE,_GID,_HOSTNAME,_MACHINE_ID,_PID,_SELINUX_CONTEXT,_SYSTEMD_CGROUP,_SYSTEMD_SLICE,_SYSTEMD_UNIT,_TRANSPORT,_UID,_AUDIT_LOGINUID,_AUDIT_SESSION,_SYSTEMD_OWNER_UID,_SYSTEMD_SESSION,_SYSTEMD_USER_UNIT,CODE_FILE,CODE_FUNCTION,CODE_LINE,ERRNO,MESSAGE_ID,RESULT,UNIT,_KERNEL_DEVICE,_KERNEL_SUBSYSTEM,_UDEV_SYSNAME,_UDEV_DEVNODE,_UDEV_DEVLINK,SYSLOG_FACILITY,SYSLOG_IDENTIFIER,SYSLOG_PID'.split(',')
       dellist.each{|field| assert_nil(rec[field])}
+    end
+    test 'disable kubernetes journal record processing' do
+      ENV['IPADDR4'] = '127.0.0.1'
+      ENV['IPADDR6'] = '::1'
+      ENV['FLUENTD_VERSION'] = 'fversion'
+      ENV['DATA_VERSION'] = 'dversion'
+      rec = emit_with_tag('kubernetes.journal.container', normal_input, '
+        <formatter>
+          enabled false
+          tag "kubernetes.journal.container**"
+          type k8s_journal
+          remove_keys log,stream,MESSAGE,_SOURCE_REALTIME_TIMESTAMP,__REALTIME_TIMESTAMP,CONTAINER_ID,CONTAINER_ID_FULL,CONTAINER_NAME,PRIORITY,_BOOT_ID,_CAP_EFFECTIVE,_CMDLINE,_COMM,_EXE,_GID,_HOSTNAME,_MACHINE_ID,_PID,_SELINUX_CONTEXT,_SYSTEMD_CGROUP,_SYSTEMD_SLICE,_SYSTEMD_UNIT,_TRANSPORT,_UID,_AUDIT_LOGINUID,_AUDIT_SESSION,_SYSTEMD_OWNER_UID,_SYSTEMD_SESSION,_SYSTEMD_USER_UNIT,CODE_FILE,CODE_FUNCTION,CODE_LINE,ERRNO,MESSAGE_ID,RESULT,UNIT,_KERNEL_DEVICE,_KERNEL_SUBSYSTEM,_UDEV_SYSNAME,_UDEV_DEVNODE,_UDEV_DEVLINK,SYSLOG_FACILITY,SYSLOG_IDENTIFIER,SYSLOG_PID
+        </formatter>
+        pipeline_type normalizer
+      ')
+      assert_nil(rec['systemd'])
+      notdellist = 'log,stream,MESSAGE,_SOURCE_REALTIME_TIMESTAMP,__REALTIME_TIMESTAMP,CONTAINER_ID,CONTAINER_ID_FULL,CONTAINER_NAME,PRIORITY,_BOOT_ID,_CAP_EFFECTIVE,_CMDLINE,_COMM,_EXE,_GID,_HOSTNAME,_MACHINE_ID,_PID,_SELINUX_CONTEXT,_SYSTEMD_CGROUP,_SYSTEMD_SLICE,_SYSTEMD_UNIT,_TRANSPORT,_UID,_AUDIT_LOGINUID,_AUDIT_SESSION,_SYSTEMD_OWNER_UID,_SYSTEMD_SESSION,_SYSTEMD_USER_UNIT,CODE_FILE,CODE_FUNCTION,CODE_LINE,ERRNO,MESSAGE_ID,RESULT,UNIT,_KERNEL_DEVICE,_KERNEL_SUBSYSTEM,_UDEV_SYSNAME,_UDEV_DEVNODE,_UDEV_DEVLINK,SYSLOG_FACILITY,SYSLOG_IDENTIFIER,SYSLOG_PID'.split(',')
+      notdellist.each{|field| assert_equal(normal_input[field], rec[field])}
     end
     test 'process a kubernetes journal record, given kubernetes.host' do
       input = normal_input.merge({})
@@ -521,7 +561,7 @@ class ViaqDataModelFilterTest < Test::Unit::TestCase
       assert_equal('fluent-plugin-systemd', rec['pipeline_metadata']['normalizer']['inputname'])
       assert_equal('fluentd', rec['pipeline_metadata']['normalizer']['name'])
       assert_equal('fversion dversion', rec['pipeline_metadata']['normalizer']['version'])
-      assert_equal(Time.at(@time).utc.to_datetime.rfc3339(6), rec['pipeline_metadata']['normalizer']['received_at'])
+      assert_equal(@timestamp_str, rec['pipeline_metadata']['normalizer']['received_at'])
       dellist = 'log,stream,MESSAGE,_SOURCE_REALTIME_TIMESTAMP,__REALTIME_TIMESTAMP,CONTAINER_ID,CONTAINER_ID_FULL,CONTAINER_NAME,PRIORITY,_BOOT_ID,_CAP_EFFECTIVE,_CMDLINE,_COMM,_EXE,_GID,_HOSTNAME,_MACHINE_ID,_PID,_SELINUX_CONTEXT,_SYSTEMD_CGROUP,_SYSTEMD_SLICE,_SYSTEMD_UNIT,_TRANSPORT,_UID,_AUDIT_LOGINUID,_AUDIT_SESSION,_SYSTEMD_OWNER_UID,_SYSTEMD_SESSION,_SYSTEMD_USER_UNIT,CODE_FILE,CODE_FUNCTION,CODE_LINE,ERRNO,MESSAGE_ID,RESULT,UNIT,_KERNEL_DEVICE,_KERNEL_SUBSYSTEM,_UDEV_SYSNAME,_UDEV_DEVNODE,_UDEV_DEVLINK,SYSLOG_FACILITY,SYSLOG_IDENTIFIER,SYSLOG_PID'.split(',')
       dellist.each{|field| assert_nil(rec[field])}
     end
@@ -552,7 +592,7 @@ class ViaqDataModelFilterTest < Test::Unit::TestCase
       assert_equal('fluent-plugin-systemd', rec['pipeline_metadata']['normalizer']['inputname'])
       assert_equal('fluentd', rec['pipeline_metadata']['normalizer']['name'])
       assert_equal('fversion dversion', rec['pipeline_metadata']['normalizer']['version'])
-      assert_equal(Time.at(@time).utc.to_datetime.rfc3339(6), rec['pipeline_metadata']['normalizer']['received_at'])
+      assert_equal(@timestamp_str, rec['pipeline_metadata']['normalizer']['received_at'])
       dellist = 'log,stream,MESSAGE,_SOURCE_REALTIME_TIMESTAMP,__REALTIME_TIMESTAMP,CONTAINER_ID,CONTAINER_ID_FULL,CONTAINER_NAME,PRIORITY,_BOOT_ID,_CAP_EFFECTIVE,_CMDLINE,_COMM,_EXE,_GID,_HOSTNAME,_MACHINE_ID,_PID,_SELINUX_CONTEXT,_SYSTEMD_CGROUP,_SYSTEMD_SLICE,_SYSTEMD_UNIT,_TRANSPORT,_UID,_AUDIT_LOGINUID,_AUDIT_SESSION,_SYSTEMD_OWNER_UID,_SYSTEMD_SESSION,_SYSTEMD_USER_UNIT,CODE_FILE,CODE_FUNCTION,CODE_LINE,ERRNO,MESSAGE_ID,RESULT,UNIT,_KERNEL_DEVICE,_KERNEL_SUBSYSTEM,_UDEV_SYSNAME,_UDEV_DEVNODE,_UDEV_DEVLINK,SYSLOG_FACILITY,SYSLOG_IDENTIFIER,SYSLOG_PID'.split(',')
       dellist.each{|field| assert_nil(rec[field])}
     end
@@ -581,7 +621,7 @@ class ViaqDataModelFilterTest < Test::Unit::TestCase
       assert_equal('fluent-plugin-systemd', rec['pipeline_metadata']['normalizer']['inputname'])
       assert_equal('fluentd', rec['pipeline_metadata']['normalizer']['name'])
       assert_equal('fversion dversion', rec['pipeline_metadata']['normalizer']['version'])
-      assert_equal(Time.at(@time).utc.to_datetime.rfc3339(6), rec['pipeline_metadata']['normalizer']['received_at'])
+      assert_equal(@timestamp_str, rec['pipeline_metadata']['normalizer']['received_at'])
       dellist = 'host,pid,ident'.split(',')
       dellist.each{|field| assert_nil(rec[field])}
     end
@@ -612,7 +652,7 @@ class ViaqDataModelFilterTest < Test::Unit::TestCase
       assert_equal('fluent-plugin-systemd', rec['pipeline_metadata']['normalizer']['inputname'])
       assert_equal('fluentd', rec['pipeline_metadata']['normalizer']['name'])
       assert_equal('fversion dversion', rec['pipeline_metadata']['normalizer']['version'])
-      assert_equal(Time.at(@time).utc.to_datetime.rfc3339(6), rec['pipeline_metadata']['normalizer']['received_at'])
+      assert_equal(@timestamp_str, rec['pipeline_metadata']['normalizer']['received_at'])
       dellist = 'host,pid,ident'.split(',')
       dellist.each{|field| assert_nil(rec[field])}
     end
@@ -640,7 +680,7 @@ class ViaqDataModelFilterTest < Test::Unit::TestCase
       assert_equal('fluent-plugin-systemd', rec['pipeline_metadata']['normalizer']['inputname'])
       assert_equal('fluentd', rec['pipeline_metadata']['normalizer']['name'])
       assert_equal('fversion dversion', rec['pipeline_metadata']['normalizer']['version'])
-      assert_equal(Time.at(@time).utc.to_datetime.rfc3339(6), rec['pipeline_metadata']['normalizer']['received_at'])
+      assert_equal(@timestamp_str, rec['pipeline_metadata']['normalizer']['received_at'])
       dellist = 'host,pid,ident'.split(',')
       dellist.each{|field| assert_nil(rec[field])}
     end
@@ -715,6 +755,30 @@ class ViaqDataModelFilterTest < Test::Unit::TestCase
         elasticsearch_index_name_field my_index_name
       ')
       assert_equal('.operations.2017.07.27', rec['my_index_name'])
+    end
+    test 'disable operations index name' do
+      rec = emit_with_tag('journal.system', normal_input, '
+        <formatter>
+          tag "journal.system**"
+          type sys_journal
+          remove_keys log,stream,MESSAGE,_SOURCE_REALTIME_TIMESTAMP,__REALTIME_TIMESTAMP,CONTAINER_ID,CONTAINER_ID_FULL,CONTAINER_NAME,PRIORITY,_BOOT_ID,_CAP_EFFECTIVE,_CMDLINE,_COMM,_EXE,_GID,_HOSTNAME,_MACHINE_ID,_PID,_SELINUX_CONTEXT,_SYSTEMD_CGROUP,_SYSTEMD_SLICE,_SYSTEMD_UNIT,_TRANSPORT,_UID,_AUDIT_LOGINUID,_AUDIT_SESSION,_SYSTEMD_OWNER_UID,_SYSTEMD_SESSION,_SYSTEMD_USER_UNIT,CODE_FILE,CODE_FUNCTION,CODE_LINE,ERRNO,MESSAGE_ID,RESULT,UNIT,_KERNEL_DEVICE,_KERNEL_SUBSYSTEM,_UDEV_SYSNAME,_UDEV_DEVNODE,_UDEV_DEVLINK,SYSLOG_FACILITY,SYSLOG_IDENTIFIER,SYSLOG_PID
+        </formatter>
+        <formatter>
+          tag "kubernetes.journal.container**"
+          type k8s_journal
+          remove_keys log,stream,MESSAGE,_SOURCE_REALTIME_TIMESTAMP,__REALTIME_TIMESTAMP,CONTAINER_ID,CONTAINER_ID_FULL,CONTAINER_NAME,PRIORITY,_BOOT_ID,_CAP_EFFECTIVE,_CMDLINE,_COMM,_EXE,_GID,_HOSTNAME,_MACHINE_ID,_PID,_SELINUX_CONTEXT,_SYSTEMD_CGROUP,_SYSTEMD_SLICE,_SYSTEMD_UNIT,_TRANSPORT,_UID,_AUDIT_LOGINUID,_AUDIT_SESSION,_SYSTEMD_OWNER_UID,_SYSTEMD_SESSION,_SYSTEMD_USER_UNIT,CODE_FILE,CODE_FUNCTION,CODE_LINE,ERRNO,MESSAGE_ID,RESULT,UNIT,_KERNEL_DEVICE,_KERNEL_SUBSYSTEM,_UDEV_SYSNAME,_UDEV_DEVNODE,_UDEV_DEVLINK,SYSLOG_FACILITY,SYSLOG_IDENTIFIER,SYSLOG_PID
+        </formatter>
+        <elasticsearch_index_name>
+          enabled false
+          tag "journal.system** system.var.log** **_default_** **_openshift_** **_openshift-infra_** mux.ops"
+          name_type operations_full
+        </elasticsearch_index_name>
+        <elasticsearch_index_name>
+          tag "**"
+          name_type project_full
+        </elasticsearch_index_name>
+      ')
+      assert_nil(rec['viaq_index_name'])
     end
     test 'log error if missing kubernetes field' do
       rec = emit_with_tag('kubernetes.journal.container.something', normal_input, '
@@ -866,5 +930,53 @@ class ViaqDataModelFilterTest < Test::Unit::TestCase
       ')
       assert_equal('project.name.uuid.2017.07.27', rec['my_index_name'])
     end
+    test 'disable kubernetes index names but allow operations index names' do
+      input = normal_input.merge({})
+      input['kubernetes'] = {'namespace_name'=>'name', 'namespace_id'=>'uuid'}
+      rec = emit_with_tag('kubernetes.journal.container.something', input, '
+        <formatter>
+          tag "journal.system**"
+          type sys_journal
+          remove_keys log,stream,MESSAGE,_SOURCE_REALTIME_TIMESTAMP,__REALTIME_TIMESTAMP,CONTAINER_ID,CONTAINER_ID_FULL,CONTAINER_NAME,PRIORITY,_BOOT_ID,_CAP_EFFECTIVE,_CMDLINE,_COMM,_EXE,_GID,_HOSTNAME,_MACHINE_ID,_PID,_SELINUX_CONTEXT,_SYSTEMD_CGROUP,_SYSTEMD_SLICE,_SYSTEMD_UNIT,_TRANSPORT,_UID,_AUDIT_LOGINUID,_AUDIT_SESSION,_SYSTEMD_OWNER_UID,_SYSTEMD_SESSION,_SYSTEMD_USER_UNIT,CODE_FILE,CODE_FUNCTION,CODE_LINE,ERRNO,MESSAGE_ID,RESULT,UNIT,_KERNEL_DEVICE,_KERNEL_SUBSYSTEM,_UDEV_SYSNAME,_UDEV_DEVNODE,_UDEV_DEVLINK,SYSLOG_FACILITY,SYSLOG_IDENTIFIER,SYSLOG_PID
+        </formatter>
+        <formatter>
+          tag "kubernetes.journal.container**"
+          type k8s_journal
+          remove_keys log,stream,MESSAGE,_SOURCE_REALTIME_TIMESTAMP,__REALTIME_TIMESTAMP,CONTAINER_ID,CONTAINER_ID_FULL,CONTAINER_NAME,PRIORITY,_BOOT_ID,_CAP_EFFECTIVE,_CMDLINE,_COMM,_EXE,_GID,_HOSTNAME,_MACHINE_ID,_PID,_SELINUX_CONTEXT,_SYSTEMD_CGROUP,_SYSTEMD_SLICE,_SYSTEMD_UNIT,_TRANSPORT,_UID,_AUDIT_LOGINUID,_AUDIT_SESSION,_SYSTEMD_OWNER_UID,_SYSTEMD_SESSION,_SYSTEMD_USER_UNIT,CODE_FILE,CODE_FUNCTION,CODE_LINE,ERRNO,MESSAGE_ID,RESULT,UNIT,_KERNEL_DEVICE,_KERNEL_SUBSYSTEM,_UDEV_SYSNAME,_UDEV_DEVNODE,_UDEV_DEVLINK,SYSLOG_FACILITY,SYSLOG_IDENTIFIER,SYSLOG_PID
+        </formatter>
+        <elasticsearch_index_name>
+          tag "journal.system** system.var.log** **_default_** **_openshift_** **_openshift-infra_** mux.ops"
+          name_type operations_full
+        </elasticsearch_index_name>
+        <elasticsearch_index_name>
+          enabled false
+          tag "**"
+          name_type project_full
+        </elasticsearch_index_name>
+      ')
+      assert_nil(rec['viaq_index_name'])
+      rec = emit_with_tag('journal.system.something', normal_input, '
+        <formatter>
+          tag "journal.system**"
+          type sys_journal
+          remove_keys log,stream,MESSAGE,_SOURCE_REALTIME_TIMESTAMP,__REALTIME_TIMESTAMP,CONTAINER_ID,CONTAINER_ID_FULL,CONTAINER_NAME,PRIORITY,_BOOT_ID,_CAP_EFFECTIVE,_CMDLINE,_COMM,_EXE,_GID,_HOSTNAME,_MACHINE_ID,_PID,_SELINUX_CONTEXT,_SYSTEMD_CGROUP,_SYSTEMD_SLICE,_SYSTEMD_UNIT,_TRANSPORT,_UID,_AUDIT_LOGINUID,_AUDIT_SESSION,_SYSTEMD_OWNER_UID,_SYSTEMD_SESSION,_SYSTEMD_USER_UNIT,CODE_FILE,CODE_FUNCTION,CODE_LINE,ERRNO,MESSAGE_ID,RESULT,UNIT,_KERNEL_DEVICE,_KERNEL_SUBSYSTEM,_UDEV_SYSNAME,_UDEV_DEVNODE,_UDEV_DEVLINK,SYSLOG_FACILITY,SYSLOG_IDENTIFIER,SYSLOG_PID
+        </formatter>
+        <formatter>
+          tag "kubernetes.journal.container**"
+          type k8s_journal
+          remove_keys log,stream,MESSAGE,_SOURCE_REALTIME_TIMESTAMP,__REALTIME_TIMESTAMP,CONTAINER_ID,CONTAINER_ID_FULL,CONTAINER_NAME,PRIORITY,_BOOT_ID,_CAP_EFFECTIVE,_CMDLINE,_COMM,_EXE,_GID,_HOSTNAME,_MACHINE_ID,_PID,_SELINUX_CONTEXT,_SYSTEMD_CGROUP,_SYSTEMD_SLICE,_SYSTEMD_UNIT,_TRANSPORT,_UID,_AUDIT_LOGINUID,_AUDIT_SESSION,_SYSTEMD_OWNER_UID,_SYSTEMD_SESSION,_SYSTEMD_USER_UNIT,CODE_FILE,CODE_FUNCTION,CODE_LINE,ERRNO,MESSAGE_ID,RESULT,UNIT,_KERNEL_DEVICE,_KERNEL_SUBSYSTEM,_UDEV_SYSNAME,_UDEV_DEVNODE,_UDEV_DEVLINK,SYSLOG_FACILITY,SYSLOG_IDENTIFIER,SYSLOG_PID
+        </formatter>
+        <elasticsearch_index_name>
+          tag "journal.system** system.var.log** **_default_** **_openshift_** **_openshift-infra_** mux.ops"
+          name_type operations_full
+        </elasticsearch_index_name>
+        <elasticsearch_index_name>
+          enabled false
+          tag "**"
+          name_type project_full
+        </elasticsearch_index_name>
+      ')
+      assert_equal('.operations.2017.07.27', rec['viaq_index_name'])
+   end
   end
 end
