@@ -140,6 +140,8 @@ module Fluent
     config_param :elasticsearch_index_name_field, :string, default: 'viaq_index_name'
     desc 'Store the Elasticsearch index prefix in this field'
     config_param :elasticsearch_index_prefix_field, :string, default: 'viaq_index_prefix'
+    desc 'Optionally turn off processing of kubernetes events'
+    config_param :process_kubernetes_events, :bool, default: true
 
     def configure(conf)
       super
@@ -259,6 +261,7 @@ module Fluent
         end
         record['time'] = rectime.utc.to_datetime.rfc3339(6)
       end
+      transform_eventrouter(tag, record)
     end
 
     def check_for_match_and_format(tag, time, record)
@@ -286,14 +289,16 @@ module Fluent
     end
 
     def add_pipeline_metadata (tag, time, record)
-      (record['pipeline_metadata'] ||= {})[@pipeline_type.to_s] = {
-        "ipaddr4"     => @ipaddr4,
-        "ipaddr6"     => @ipaddr6,
-        "inputname"   => "fluent-plugin-systemd",
-        "name"        => "fluentd",
-        "received_at" => Time.now.utc.to_datetime.rfc3339(6),
-        "version"     => @pipeline_version
-      }
+      record['pipeline_metadata'] = {} unless record.key?('pipeline_metadata')
+      pipeline_type = @pipeline_type.to_s
+      # this will catch the case where pipeline_type doesn't exist, or is not a Hash
+      record['pipeline_metadata'][pipeline_type] = {} unless record['pipeline_metadata'][pipeline_type].respond_to?(:fetch)
+      record['pipeline_metadata'][pipeline_type]['ipaddr4'] = @ipaddr4
+      record['pipeline_metadata'][pipeline_type]['ipaddr6'] = @ipaddr6
+      record['pipeline_metadata'][pipeline_type]['inputname'] = 'fluent-plugin-systemd'
+      record['pipeline_metadata'][pipeline_type]['name'] = 'fluentd'
+      record['pipeline_metadata'][pipeline_type]['received_at'] = Time.now.utc.to_datetime.rfc3339(6)
+      record['pipeline_metadata'][pipeline_type]['version'] = @pipeline_version
     end
 
     def add_elasticsearch_index_name_field(tag, time, record)
@@ -355,6 +360,22 @@ module Fluent
             log.error("no match for tag #{tag}")
           end
         end
+      end
+    end
+
+    def transform_eventrouter(tag, record)
+      return unless @process_kubernetes_events
+      if record.key?("event")
+        if record.key?("verb")
+          record["event"]["verb"] = record.delete("verb")
+        end
+        record["kubernetes"] = {} unless record.key?("kubernetes")
+        record["kubernetes"]["event"] = record.delete("event")
+        if record["kubernetes"]["event"].key?('message')
+          ((record['pipeline_metadata'] ||= {})[@pipeline_type.to_s] ||= {})['original_raw_message'] = record['message']
+        end
+        record['message'] = record["kubernetes"]["event"].delete("message")
+        record['time'] = record["kubernetes"]["event"]["metadata"].delete("creationTimestamp") 
       end
     end
 

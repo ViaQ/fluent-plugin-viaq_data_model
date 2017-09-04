@@ -129,6 +129,7 @@ module ViaqDataModelFilterSystemd
       else
         record['hostname'] = record['_HOSTNAME']
       end
+      transform_eventrouter(tag, record)
     end
   end
 end
