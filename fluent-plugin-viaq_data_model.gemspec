@@ -31,5 +31,4 @@ Gem::Specification.new do |gem|
   gem.add_development_dependency("rr", ["~> 1.0"])
   gem.add_development_dependency("test-unit", ["~> 3.2"])
   gem.add_development_dependency("test-unit-rr", ["~> 1.0"])
-  gem.add_development_dependency("flexmock", ["~> 2.0"])
 end

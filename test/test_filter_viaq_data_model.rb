@@ -18,7 +18,7 @@
 #
 #require_relative '../helper'
 require 'fluent/test'
-require 'flexmock/test_unit'
+require 'test/unit/rr'
 
 require 'fluent/plugin/filter_viaq_data_model'
 
@@ -31,7 +31,7 @@ class ViaqDataModelFilterTest < Test::Unit::TestCase
     log = Fluent::Engine.log
     @timestamp = Time.now
     @timestamp_str = @timestamp.utc.to_datetime.rfc3339(6)
-    flexmock(Time).should_receive(:now).and_return(@timestamp)
+    stub(Time).now { @timestamp }
   end
 
   def create_driver(conf = '')
