@@ -601,8 +601,9 @@ class ViaqDataModelFilterTest < Test::Unit::TestCase
       ENV['IPADDR6'] = '::1'
       ENV['FLUENTD_VERSION'] = 'fversion'
       ENV['DATA_VERSION'] = 'dversion'
-      now = Time.now
-      input = {"pid"=>12345,"ident"=>"service","host"=>"myhost","time"=>now,"message"=>"mymessage"}
+      timestr = Time.at(@time).strftime('%b %d %H:%M:%S')
+      expectedtime = Time.at(@time).utc.to_datetime.rfc3339(6)
+      input = {"pid"=>12345,"ident"=>"service","host"=>"myhost","time"=>timestr,"message"=>"mymessage"}
       rec = emit_with_tag('system.var.log.messages', input, '
         <formatter>
           tag "system.var.log**"
@@ -615,7 +616,7 @@ class ViaqDataModelFilterTest < Test::Unit::TestCase
       assert_equal("service", rec['systemd']['u']['SYSLOG_IDENTIFIER'])
       assert_equal('mymessage', rec['message'])
       assert_equal('myhost', rec['hostname'])
-      assert_equal(now.utc.to_datetime.rfc3339(6), rec['@timestamp'])
+      assert_equal(expectedtime, rec['@timestamp'])
       assert_equal('127.0.0.1', rec['pipeline_metadata']['normalizer']['ipaddr4'])
       assert_equal('::1', rec['pipeline_metadata']['normalizer']['ipaddr6'])
       assert_equal('fluent-plugin-systemd', rec['pipeline_metadata']['normalizer']['inputname'])
@@ -630,10 +631,12 @@ class ViaqDataModelFilterTest < Test::Unit::TestCase
       ENV['IPADDR6'] = '::1'
       ENV['FLUENTD_VERSION'] = 'fversion'
       ENV['DATA_VERSION'] = 'dversion'
-      now = DateTime.strptime('Dec 31 23:59:59', '%b %d %H:%M:%S').to_time.utc
+      timestr = 'Dec 31 23:59:59'
+      future = DateTime.strptime(timestr, '%b %d %H:%M:%S').to_time
+      @time = future.to_i
       # subtract 1 from year
-      expected = Time.new(now.year-1, now.month, now.day, now.hour, now.min, now.sec, now.utc_offset)
-      input = {"pid"=>12345,"ident"=>"service","host"=>"myhost","time"=>now,"message"=>"mymessage"}
+      expected = Time.new(future.year-1, future.month, future.day, future.hour, future.min, future.sec, future.utc_offset)
+      input = {"pid"=>12345,"ident"=>"service","host"=>"myhost","time"=>timestr,"message"=>"mymessage"}
       rec = emit_with_tag('system.var.log.messages', input, '
         <formatter>
           tag "system.var.log**"
@@ -656,13 +659,72 @@ class ViaqDataModelFilterTest < Test::Unit::TestCase
       dellist = 'host,pid,ident'.split(',')
       dellist.each{|field| assert_nil(rec[field])}
     end
+    test 'process a /var/log/messages record, already has @timestamp' do
+      ENV['IPADDR4'] = '127.0.0.1'
+      ENV['IPADDR6'] = '::1'
+      ENV['FLUENTD_VERSION'] = 'fversion'
+      ENV['DATA_VERSION'] = 'dversion'
+      timestr = Time.at(@time).strftime('%b %d %H:%M:%S')
+      input = {"pid"=>12345,"ident"=>"service","host"=>"myhost","time"=>timestr,
+               "message"=>"mymessage","@timestamp"=>@timestamp_str}
+      rec = emit_with_tag('system.var.log.messages', input, '
+        rename_time_if_missing true
+        <formatter>
+          tag "system.var.log**"
+          type sys_var_log
+          remove_keys host,pid,ident
+        </formatter>
+        pipeline_type normalizer
+      ')
+      assert_equal(12345, rec['systemd']['t']['PID'])
+      assert_equal("service", rec['systemd']['u']['SYSLOG_IDENTIFIER'])
+      assert_equal('mymessage', rec['message'])
+      assert_equal('myhost', rec['hostname'])
+      assert_equal(@timestamp_str, rec['@timestamp'])
+      assert_equal('127.0.0.1', rec['pipeline_metadata']['normalizer']['ipaddr4'])
+      assert_equal('::1', rec['pipeline_metadata']['normalizer']['ipaddr6'])
+      assert_equal('fluent-plugin-systemd', rec['pipeline_metadata']['normalizer']['inputname'])
+      assert_equal('fluentd', rec['pipeline_metadata']['normalizer']['name'])
+      assert_equal('fversion dversion', rec['pipeline_metadata']['normalizer']['version'])
+      assert_equal(@timestamp_str, rec['pipeline_metadata']['normalizer']['received_at'])
+      dellist = 'host,pid,ident'.split(',')
+      dellist.each{|field| assert_nil(rec[field])}
+    end
     test 'process a k8s json-file record, default settings' do
       ENV['IPADDR4'] = '127.0.0.1'
       ENV['IPADDR6'] = '::1'
       ENV['FLUENTD_VERSION'] = 'fversion'
       ENV['DATA_VERSION'] = 'dversion'
+      input = {'kubernetes'=>{'host'=>'k8shost'},'stream'=>'stderr','time'=>@timestamp_str,'log'=>'mymessage'}
+      rec = emit_with_tag('kubernetes.var.log.containers.name.name_this_that_other_log', input, '
+        <formatter>
+          tag "kubernetes.var.log.containers**"
+          type k8s_json_file
+          remove_keys log,stream
+        </formatter>
+        pipeline_type normalizer
+      ')
+      assert_equal('mymessage', rec['message'])
+      assert_equal('k8shost', rec['hostname'])
+      assert_equal('err', rec['level'])
+      assert_equal(@timestamp_str, rec['@timestamp'])
+      assert_equal('127.0.0.1', rec['pipeline_metadata']['normalizer']['ipaddr4'])
+      assert_equal('::1', rec['pipeline_metadata']['normalizer']['ipaddr6'])
+      assert_equal('fluent-plugin-systemd', rec['pipeline_metadata']['normalizer']['inputname'])
+      assert_equal('fluentd', rec['pipeline_metadata']['normalizer']['name'])
+      assert_equal('fversion dversion', rec['pipeline_metadata']['normalizer']['version'])
+      assert_equal(@timestamp_str, rec['pipeline_metadata']['normalizer']['received_at'])
+      dellist = 'host,pid,ident'.split(',')
+      dellist.each{|field| assert_nil(rec[field])}
+    end
+    test 'process a k8s json-file record with a string valued timestamp' do
+      ENV['IPADDR4'] = '127.0.0.1'
+      ENV['IPADDR6'] = '::1'
+      ENV['FLUENTD_VERSION'] = 'fversion'
+      ENV['DATA_VERSION'] = 'dversion'
       now = Time.now
-      input = {'kubernetes'=>{'host'=>'k8shost'},'stream'=>'stderr','time'=>now,'log'=>'mymessage'}
+      input = {'kubernetes'=>{'host'=>'k8shost'},
+               'stream'=>'stderr','time'=>now.to_datetime.rfc3339(9),'log'=>'mymessage'}
       rec = emit_with_tag('kubernetes.var.log.containers.name.name_this_that_other_log', input, '
         <formatter>
           tag "kubernetes.var.log.containers**"
@@ -675,6 +737,93 @@ class ViaqDataModelFilterTest < Test::Unit::TestCase
       assert_equal('k8shost', rec['hostname'])
       assert_equal('err', rec['level'])
       assert_equal(now.utc.to_datetime.rfc3339(6), rec['@timestamp'])
+      assert_equal('127.0.0.1', rec['pipeline_metadata']['normalizer']['ipaddr4'])
+      assert_equal('::1', rec['pipeline_metadata']['normalizer']['ipaddr6'])
+      assert_equal('fluent-plugin-systemd', rec['pipeline_metadata']['normalizer']['inputname'])
+      assert_equal('fluentd', rec['pipeline_metadata']['normalizer']['name'])
+      assert_equal('fversion dversion', rec['pipeline_metadata']['normalizer']['version'])
+      assert_equal(@timestamp_str, rec['pipeline_metadata']['normalizer']['received_at'])
+      dellist = 'host,pid,ident'.split(',')
+      dellist.each{|field| assert_nil(rec[field])}
+    end
+    test 'process a k8s json-file record with a string valued timestamp, alternate format' do
+      ENV['IPADDR4'] = '127.0.0.1'
+      ENV['IPADDR6'] = '::1'
+      ENV['FLUENTD_VERSION'] = 'fversion'
+      ENV['DATA_VERSION'] = 'dversion'
+      now = Time.now
+      expectedtime = Time.parse(now.to_datetime.ctime).utc.to_datetime.rfc3339(6)
+      input = {'kubernetes'=>{'host'=>'k8shost'},
+               'stream'=>'stderr','time'=>now.to_datetime.ctime,'log'=>'mymessage'}
+      rec = emit_with_tag('kubernetes.var.log.containers.name.name_this_that_other_log', input, '
+        <formatter>
+          tag "kubernetes.var.log.containers**"
+          type k8s_json_file
+          remove_keys log,stream
+        </formatter>
+        pipeline_type normalizer
+      ')
+      assert_equal('mymessage', rec['message'])
+      assert_equal('k8shost', rec['hostname'])
+      assert_equal('err', rec['level'])
+      assert_equal(expectedtime, rec['@timestamp'])
+      assert_equal('127.0.0.1', rec['pipeline_metadata']['normalizer']['ipaddr4'])
+      assert_equal('::1', rec['pipeline_metadata']['normalizer']['ipaddr6'])
+      assert_equal('fluent-plugin-systemd', rec['pipeline_metadata']['normalizer']['inputname'])
+      assert_equal('fluentd', rec['pipeline_metadata']['normalizer']['name'])
+      assert_equal('fversion dversion', rec['pipeline_metadata']['normalizer']['version'])
+      assert_equal(@timestamp_str, rec['pipeline_metadata']['normalizer']['received_at'])
+      dellist = 'host,pid,ident'.split(',')
+      dellist.each{|field| assert_nil(rec[field])}
+    end
+    test 'process a k8s json-file record, already has @timestamp' do
+      ENV['IPADDR4'] = '127.0.0.1'
+      ENV['IPADDR6'] = '::1'
+      ENV['FLUENTD_VERSION'] = 'fversion'
+      ENV['DATA_VERSION'] = 'dversion'
+      input = {'kubernetes'=>{'host'=>'k8shost'},'@timestamp'=>@timestamp_str,
+               'stream'=>'stderr','time'=>'ignored','log'=>'mymessage'}
+      rec = emit_with_tag('kubernetes.var.log.containers.name.name_this_that_other_log', input, '
+        rename_time_if_missing true
+        <formatter>
+          tag "kubernetes.var.log.containers**"
+          type k8s_json_file
+          remove_keys log,stream
+        </formatter>
+        pipeline_type normalizer
+      ')
+      assert_equal('mymessage', rec['message'])
+      assert_equal('k8shost', rec['hostname'])
+      assert_equal('err', rec['level'])
+      assert_equal(@timestamp_str, rec['@timestamp'])
+      assert_equal('127.0.0.1', rec['pipeline_metadata']['normalizer']['ipaddr4'])
+      assert_equal('::1', rec['pipeline_metadata']['normalizer']['ipaddr6'])
+      assert_equal('fluent-plugin-systemd', rec['pipeline_metadata']['normalizer']['inputname'])
+      assert_equal('fluentd', rec['pipeline_metadata']['normalizer']['name'])
+      assert_equal('fversion dversion', rec['pipeline_metadata']['normalizer']['version'])
+      assert_equal(@timestamp_str, rec['pipeline_metadata']['normalizer']['received_at'])
+      dellist = 'host,pid,ident'.split(',')
+      dellist.each{|field| assert_nil(rec[field])}
+    end
+    test 'process a k8s json-file record, no time field' do
+      ENV['IPADDR4'] = '127.0.0.1'
+      ENV['IPADDR6'] = '::1'
+      ENV['FLUENTD_VERSION'] = 'fversion'
+      ENV['DATA_VERSION'] = 'dversion'
+      input = {'kubernetes'=>{'host'=>'k8shost'},
+               'stream'=>'stderr','log'=>'mymessage'}
+      rec = emit_with_tag('kubernetes.var.log.containers.name.name_this_that_other_log', input, '
+        <formatter>
+          tag "kubernetes.var.log.containers**"
+          type k8s_json_file
+          remove_keys log,stream
+        </formatter>
+        pipeline_type normalizer
+      ')
+      assert_equal('mymessage', rec['message'])
+      assert_equal('k8shost', rec['hostname'])
+      assert_equal('err', rec['level'])
+      assert_equal(Time.at(@time).utc.to_datetime.rfc3339(6), rec['@timestamp'])
       assert_equal('127.0.0.1', rec['pipeline_metadata']['normalizer']['ipaddr4'])
       assert_equal('::1', rec['pipeline_metadata']['normalizer']['ipaddr6'])
       assert_equal('fluent-plugin-systemd', rec['pipeline_metadata']['normalizer']['inputname'])
