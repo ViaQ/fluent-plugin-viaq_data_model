@@ -7,7 +7,7 @@ FLUENTD_VERSION = ENV['FLUENTD_VERSION'] || "0.12.0"
 
 Gem::Specification.new do |gem|
   gem.name          = "fluent-plugin-viaq_data_model"
-  gem.version       = "0.0.8"
+  gem.version       = "0.0.9"
   gem.authors       = ["Rich Megginson"]
   gem.email         = ["rmeggins@redhat.com"]
   gem.description   = %q{Filter plugin to ensure data is in the ViaQ common data model}

@@ -68,19 +68,19 @@ module ViaqDataModelFilterSystemd
   def process_journal_fields(tag, time, record, fmtr_type)
     systemd_t = {}
     JOURNAL_FIELD_MAP_SYSTEMD_T.each do |jkey, key|
-      if record[jkey]
+      if record.key?(jkey)
         systemd_t[key] = record[jkey]
       end
     end
     systemd_u = {}
     JOURNAL_FIELD_MAP_SYSTEMD_U.each do |jkey, key|
-      if record[jkey]
+      if record.key?(jkey)
         systemd_u[key] = record[jkey]
       end
     end
     systemd_k = {}
     JOURNAL_FIELD_MAP_SYSTEMD_K.each do |jkey, key|
-      if record[jkey]
+      if record.key?(jkey)
         systemd_k[key] = record[jkey]
       end
     end
@@ -106,8 +106,8 @@ module ViaqDataModelFilterSystemd
     end
     record['level'] = ["emerg", "alert", "crit", "err", "warning", "notice", "info", "debug", "trace", "unknown"][pri_index]
     JOURNAL_TIME_FIELDS.each do |field|
-      if record[field]
-        record['time'] = Time.at(record[field].to_f / 1000000.0).utc.to_datetime.rfc3339(6)
+      if (val = record[field])
+        record['time'] = Time.at(val.to_f / 1000000.0).utc.to_datetime.rfc3339(6)
         break
       end
     end
@@ -121,8 +121,9 @@ module ViaqDataModelFilterSystemd
       end
     when :k8s_journal
       record['message'] = record['message'] || record['MESSAGE'] || record['log']
-      if record['kubernetes'] && record['kubernetes']['host']
-        record['hostname'] = record['kubernetes']['host']
+      if record.key?('kubernetes') && record['kubernetes'].respond_to?(:fetch) && \
+         (k8shost = record['kubernetes'].fetch('host', nil))
+        record['hostname'] = k8shost
       elsif @docker_hostname
         record['hostname'] = @docker_hostname
       else

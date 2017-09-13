@@ -225,14 +225,13 @@ module Fluent
 
     def process_sys_var_log_fields(tag, time, record, fmtr_type = nil)
       record['systemd'] = {"t" => {"PID" => record['pid']}, "u" => {"SYSLOG_IDENTIFIER" => record['ident']}}
-      unless record[@dest_time_name] # e.g. already has @timestamp
-        rectime = record['time'] || time
+      if record[@dest_time_name].nil? # e.g. already has @timestamp
         # handle the case where the time reported in /var/log/messages is for a previous year
-        if Time.at(rectime) > Time.now
-          record['time'] = Time.new((rectime.year - 1), rectime.month, rectime.day, rectime.hour, rectime.min, rectime.sec, rectime.utc_offset).utc.to_datetime.rfc3339(6)
-        else
-          record['time'] = rectime.utc.to_datetime.rfc3339(6)
+        timeobj = Time.at(time)
+        if timeobj > Time.now
+          timeobj = Time.new((timeobj.year - 1), timeobj.month, timeobj.day, timeobj.hour, timeobj.min, timeobj.sec, timeobj.utc_offset)
         end
+        record['time'] = timeobj.utc.to_datetime.rfc3339(6)
       end
       if record['host'].eql?('localhost') && @docker_hostname
         record['hostname'] = @docker_hostname
@@ -244,13 +243,21 @@ module Fluent
     def process_k8s_json_file_fields(tag, time, record, fmtr_type = nil)
       record['message'] = record['message'] || record['log']
       record['level'] = (record['stream'] == 'stdout') ? 'info' : 'err'
-      if record['kubernetes'] && record['kubernetes']['host']
-        record['hostname'] = record['kubernetes']['host']
+      if record.key?('kubernetes') && record['kubernetes'].respond_to?(:fetch) && \
+         (k8shost = record['kubernetes'].fetch('host', nil))
+        record['hostname'] = k8shost
       elsif @docker_hostname
         record['hostname'] = @docker_hostname
       end
-      unless record[@dest_time_name] # e.g. already has @timestamp
-        record['time'] = record['time'].utc.to_datetime.rfc3339(6)
+      if record[@dest_time_name].nil? # e.g. already has @timestamp
+        unless record['time'].nil?
+          # convert from string - parses a wide variety of formats
+          rectime = Time.parse(record['time'])
+        else
+          # convert from time_t
+          rectime = Time.at(time)
+        end
+        record['time'] = rectime.utc.to_datetime.rfc3339(6)
       end
     end
 
