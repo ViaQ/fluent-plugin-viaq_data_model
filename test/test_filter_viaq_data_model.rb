@@ -317,6 +317,12 @@ class ViaqDataModelFilterTest < Test::Unit::TestCase
         "UDEV_DEVLINK"     =>"UDEV_DEVLINK"
       }
     end
+    def add_event(input)
+      input = input.merge({})
+      input['verb'] = 'ADDED'
+      input['event'] = {'message'=>'event message','metadata'=>{'creationTimestamp'=>'2017-07-27T17:23:46.216527+00:00'}}
+      input
+    end
     test 'match records with journal_system_record_tag' do
       rec = emit_with_tag('journal.system', {'a'=>'b', 'MESSAGE'=>'here'}, '
         <formatter>
@@ -515,6 +521,72 @@ class ViaqDataModelFilterTest < Test::Unit::TestCase
       assert_equal(@timestamp_str, rec['pipeline_metadata']['normalizer']['received_at'])
       dellist = 'log,stream,MESSAGE,_SOURCE_REALTIME_TIMESTAMP,__REALTIME_TIMESTAMP,CONTAINER_ID,CONTAINER_ID_FULL,CONTAINER_NAME,PRIORITY,_BOOT_ID,_CAP_EFFECTIVE,_CMDLINE,_COMM,_EXE,_GID,_HOSTNAME,_MACHINE_ID,_PID,_SELINUX_CONTEXT,_SYSTEMD_CGROUP,_SYSTEMD_SLICE,_SYSTEMD_UNIT,_TRANSPORT,_UID,_AUDIT_LOGINUID,_AUDIT_SESSION,_SYSTEMD_OWNER_UID,_SYSTEMD_SESSION,_SYSTEMD_USER_UNIT,CODE_FILE,CODE_FUNCTION,CODE_LINE,ERRNO,MESSAGE_ID,RESULT,UNIT,_KERNEL_DEVICE,_KERNEL_SUBSYSTEM,_UDEV_SYSNAME,_UDEV_DEVNODE,_UDEV_DEVLINK,SYSLOG_FACILITY,SYSLOG_IDENTIFIER,SYSLOG_PID'.split(',')
       dellist.each{|field| assert_nil(rec[field])}
+    end
+    test 'process a kubernetes journal record with event from eventrouter, default settings' do
+      ENV['IPADDR4'] = '127.0.0.1'
+      ENV['IPADDR6'] = '::1'
+      ENV['FLUENTD_VERSION'] = 'fversion'
+      ENV['DATA_VERSION'] = 'dversion'
+      input = add_event(normal_input)
+      rec = emit_with_tag('kubernetes.journal.container', input, '
+        <formatter>
+          tag "kubernetes.journal.container**"
+          type k8s_journal
+          remove_keys log,stream,MESSAGE,_SOURCE_REALTIME_TIMESTAMP,__REALTIME_TIMESTAMP,CONTAINER_ID,CONTAINER_ID_FULL,CONTAINER_NAME,PRIORITY,_BOOT_ID,_CAP_EFFECTIVE,_CMDLINE,_COMM,_EXE,_GID,_HOSTNAME,_MACHINE_ID,_PID,_SELINUX_CONTEXT,_SYSTEMD_CGROUP,_SYSTEMD_SLICE,_SYSTEMD_UNIT,_TRANSPORT,_UID,_AUDIT_LOGINUID,_AUDIT_SESSION,_SYSTEMD_OWNER_UID,_SYSTEMD_SESSION,_SYSTEMD_USER_UNIT,CODE_FILE,CODE_FUNCTION,CODE_LINE,ERRNO,MESSAGE_ID,RESULT,UNIT,_KERNEL_DEVICE,_KERNEL_SUBSYSTEM,_UDEV_SYSNAME,_UDEV_DEVNODE,_UDEV_DEVLINK,SYSLOG_FACILITY,SYSLOG_IDENTIFIER,SYSLOG_PID
+        </formatter>
+        pipeline_type collector
+      ')
+      assert_equal(normal_output_t, rec['systemd']['t'])
+      assert_equal(normal_output_u, rec['systemd']['u'])
+      assert_equal(normal_output_k, rec['systemd']['k'])
+      assert_equal('ADDED', rec['kubernetes']['event']['verb'])
+      assert_equal('event message', rec['message'])
+      assert_equal('hello world', rec['pipeline_metadata']['collector']['original_raw_message'])
+      assert_equal('info', rec['level'])
+      assert_equal('myhost', rec['hostname'])
+      assert_equal('2017-07-27T17:23:46.216527+00:00', rec['@timestamp'])
+      assert_equal('127.0.0.1', rec['pipeline_metadata']['collector']['ipaddr4'])
+      assert_equal('::1', rec['pipeline_metadata']['collector']['ipaddr6'])
+      assert_equal('fluent-plugin-systemd', rec['pipeline_metadata']['collector']['inputname'])
+      assert_equal('fluentd', rec['pipeline_metadata']['collector']['name'])
+      assert_equal('fversion dversion', rec['pipeline_metadata']['collector']['version'])
+      assert_equal(@timestamp_str, rec['pipeline_metadata']['collector']['received_at'])
+      dellist = 'log,stream,MESSAGE,_SOURCE_REALTIME_TIMESTAMP,__REALTIME_TIMESTAMP,CONTAINER_ID,CONTAINER_ID_FULL,CONTAINER_NAME,PRIORITY,_BOOT_ID,_CAP_EFFECTIVE,_CMDLINE,_COMM,_EXE,_GID,_HOSTNAME,_MACHINE_ID,_PID,_SELINUX_CONTEXT,_SYSTEMD_CGROUP,_SYSTEMD_SLICE,_SYSTEMD_UNIT,_TRANSPORT,_UID,_AUDIT_LOGINUID,_AUDIT_SESSION,_SYSTEMD_OWNER_UID,_SYSTEMD_SESSION,_SYSTEMD_USER_UNIT,CODE_FILE,CODE_FUNCTION,CODE_LINE,ERRNO,MESSAGE_ID,RESULT,UNIT,_KERNEL_DEVICE,_KERNEL_SUBSYSTEM,_UDEV_SYSNAME,_UDEV_DEVNODE,_UDEV_DEVLINK,SYSLOG_FACILITY,SYSLOG_IDENTIFIER,SYSLOG_PID,event,verb'.split(',')
+      dellist.each{|field| assert_nil(rec[field])}
+    end
+    test 'process a kubernetes journal record with event from eventrouter, disable event processing' do
+      ENV['IPADDR4'] = '127.0.0.1'
+      ENV['IPADDR6'] = '::1'
+      ENV['FLUENTD_VERSION'] = 'fversion'
+      ENV['DATA_VERSION'] = 'dversion'
+      input = add_event(normal_input)
+      rec = emit_with_tag('kubernetes.journal.container', input, '
+        <formatter>
+          tag "kubernetes.journal.container**"
+          type k8s_journal
+          remove_keys log,stream,MESSAGE,_SOURCE_REALTIME_TIMESTAMP,__REALTIME_TIMESTAMP,CONTAINER_ID,CONTAINER_ID_FULL,CONTAINER_NAME,PRIORITY,_BOOT_ID,_CAP_EFFECTIVE,_CMDLINE,_COMM,_EXE,_GID,_HOSTNAME,_MACHINE_ID,_PID,_SELINUX_CONTEXT,_SYSTEMD_CGROUP,_SYSTEMD_SLICE,_SYSTEMD_UNIT,_TRANSPORT,_UID,_AUDIT_LOGINUID,_AUDIT_SESSION,_SYSTEMD_OWNER_UID,_SYSTEMD_SESSION,_SYSTEMD_USER_UNIT,CODE_FILE,CODE_FUNCTION,CODE_LINE,ERRNO,MESSAGE_ID,RESULT,UNIT,_KERNEL_DEVICE,_KERNEL_SUBSYSTEM,_UDEV_SYSNAME,_UDEV_DEVNODE,_UDEV_DEVLINK,SYSLOG_FACILITY,SYSLOG_IDENTIFIER,SYSLOG_PID
+        </formatter>
+        process_kubernetes_events false
+        pipeline_type collector
+      ')
+      assert_equal('ADDED', rec['verb'])
+      assert_equal({'message'=>'event message','metadata'=>{'creationTimestamp'=>'2017-07-27T17:23:46.216527+00:00'}}, rec['event'])
+      assert_equal(normal_output_t, rec['systemd']['t'])
+      assert_equal(normal_output_u, rec['systemd']['u'])
+      assert_equal(normal_output_k, rec['systemd']['k'])
+      assert_equal('hello world', rec['message'])
+      assert_equal('info', rec['level'])
+      assert_equal('myhost', rec['hostname'])
+      assert_equal('2017-07-27T17:27:46.216527+00:00', rec['@timestamp'])
+      assert_equal('127.0.0.1', rec['pipeline_metadata']['collector']['ipaddr4'])
+      assert_equal('::1', rec['pipeline_metadata']['collector']['ipaddr6'])
+      assert_equal('fluent-plugin-systemd', rec['pipeline_metadata']['collector']['inputname'])
+      assert_equal('fluentd', rec['pipeline_metadata']['collector']['name'])
+      assert_equal('fversion dversion', rec['pipeline_metadata']['collector']['version'])
+      assert_equal(@timestamp_str, rec['pipeline_metadata']['collector']['received_at'])
+      dellist = 'log,stream,MESSAGE,_SOURCE_REALTIME_TIMESTAMP,__REALTIME_TIMESTAMP,CONTAINER_ID,CONTAINER_ID_FULL,CONTAINER_NAME,PRIORITY,_BOOT_ID,_CAP_EFFECTIVE,_CMDLINE,_COMM,_EXE,_GID,_HOSTNAME,_MACHINE_ID,_PID,_SELINUX_CONTEXT,_SYSTEMD_CGROUP,_SYSTEMD_SLICE,_SYSTEMD_UNIT,_TRANSPORT,_UID,_AUDIT_LOGINUID,_AUDIT_SESSION,_SYSTEMD_OWNER_UID,_SYSTEMD_SESSION,_SYSTEMD_USER_UNIT,CODE_FILE,CODE_FUNCTION,CODE_LINE,ERRNO,MESSAGE_ID,RESULT,UNIT,_KERNEL_DEVICE,_KERNEL_SUBSYSTEM,_UDEV_SYSNAME,_UDEV_DEVNODE,_UDEV_DEVLINK,SYSLOG_FACILITY,SYSLOG_IDENTIFIER,SYSLOG_PID'.split(',')
+      dellist.each{|field| assert_nil(rec[field])}
+      assert_nil(rec['pipeline_metadata']['collector']['original_raw_message'])
     end
     test 'disable kubernetes journal record processing' do
       ENV['IPADDR4'] = '127.0.0.1'
@@ -715,6 +787,35 @@ class ViaqDataModelFilterTest < Test::Unit::TestCase
       assert_equal('fversion dversion', rec['pipeline_metadata']['normalizer']['version'])
       assert_equal(@timestamp_str, rec['pipeline_metadata']['normalizer']['received_at'])
       dellist = 'host,pid,ident'.split(',')
+      dellist.each{|field| assert_nil(rec[field])}
+    end
+    test 'process a k8s json-file record with event from eventrouter, default settings' do
+      ENV['IPADDR4'] = '127.0.0.1'
+      ENV['IPADDR6'] = '::1'
+      ENV['FLUENTD_VERSION'] = 'fversion'
+      ENV['DATA_VERSION'] = 'dversion'
+      input = {'kubernetes'=>{'host'=>'k8shost'},'stream'=>'stderr','time'=>@timestamp_str,'log'=>'mymessage'}
+      input = add_event(input)
+      rec = emit_with_tag('kubernetes.var.log.containers.name.name_this_that_other_log', input, '
+        <formatter>
+          tag "kubernetes.var.log.containers**"
+          type k8s_json_file
+          remove_keys log,stream
+        </formatter>
+        pipeline_type collector 
+      ')
+      assert_equal('ADDED', rec['kubernetes']['event']['verb'])
+      assert_equal('event message', rec['message'])
+      assert_equal('mymessage', rec['pipeline_metadata']['collector']['original_raw_message'])
+      assert_equal('err', rec['level'])
+      assert_equal('2017-07-27T17:23:46.216527+00:00', rec['@timestamp'])
+      assert_equal('127.0.0.1', rec['pipeline_metadata']['collector']['ipaddr4'])
+      assert_equal('::1', rec['pipeline_metadata']['collector']['ipaddr6'])
+      assert_equal('fluent-plugin-systemd', rec['pipeline_metadata']['collector']['inputname'])
+      assert_equal('fluentd', rec['pipeline_metadata']['collector']['name'])
+      assert_equal('fversion dversion', rec['pipeline_metadata']['collector']['version'])
+      assert_equal(@timestamp_str, rec['pipeline_metadata']['collector']['received_at'])
+      dellist = 'host,pid,ident,event,verb'.split(',')
       dellist.each{|field| assert_nil(rec[field])}
     end
     test 'process a k8s json-file record with a string valued timestamp' do
