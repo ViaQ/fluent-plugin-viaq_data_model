@@ -107,7 +107,8 @@ module ViaqDataModelFilterSystemd
     record['level'] = ["emerg", "alert", "crit", "err", "warning", "notice", "info", "debug", "trace", "unknown"][pri_index]
     JOURNAL_TIME_FIELDS.each do |field|
       if (val = record[field])
-        record['time'] = Time.at(val.to_f / 1000000.0).utc.to_datetime.rfc3339(6)
+        vali = val.to_i
+        record['time'] = Time.at(vali / 1000000, vali % 1000000).utc.to_datetime.rfc3339(6)
         break
       end
     end
