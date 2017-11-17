@@ -225,6 +225,68 @@ module Fluent
       thing
     end
 
+    # https://github.com/ViaQ/elasticsearch-templates/blob/master/namespaces/_default_.yml#L63
+    NORMAL_LEVELS = {
+      'emerg'    => 'emerg',
+      'panic'    => 'emerg',
+      'alert'    => 'alert',
+      'crit'     => 'crit',
+      'critical' => 'crit',
+      'err'      => 'err',
+      'error'    => 'err',
+      'warning'  => 'warning',
+      'warn'     => 'warning',
+      'notice'   => 'notice',
+      'info'     => 'info',
+      'debug'    => 'debug',
+      'trace'    => 'trace',
+      'unknown'  => 'unknown',
+    }
+    # numeric levels for the PRIORITY field
+    PRIORITY_LEVELS = {
+      0 => 'emerg',
+      1 => 'alert',
+      2 => 'crit',
+      3 => 'err',
+      4 => 'warning',
+      5 => 'notice',
+      6 => 'info',
+      7 => 'debug',
+      8 => 'trace',
+      9 => 'unknown',
+      '0' => 'emerg',
+      '1' => 'alert',
+      '2' => 'crit',
+      '3' => 'err',
+      '4' => 'warning',
+      '5' => 'notice',
+      '6' => 'info',
+      '7' => 'debug',
+      '8' => 'trace',
+      '9' => 'unknown',
+    }
+    def normalize_level(level, newlevel, stream=nil, priority=nil)
+      # if the record already has a level field, and it looks like one of our well
+      # known values, convert it to the canonical normalized form - otherwise,
+      # preserve the value in string format
+      retlevel = nil
+      if !level.nil?
+        unless (retlevel = NORMAL_LEVELS[level]) ||
+               (level.respond_to?(:downcase) && (retlevel = NORMAL_LEVELS[level.downcase]))
+          retlevel = level.to_s # don't know what it is - just convert to string
+        end
+      elsif stream == 'stdout'
+        retlevel = 'info'
+      elsif stream == 'stderr'
+        retlevel = 'err'
+      elsif !priority.nil?
+        retlevel = PRIORITY_LEVELS[priority]
+      else
+        retlevel = NORMAL_LEVELS[newlevel]
+      end
+      retlevel || 'unknown'
+    end
+
     def process_sys_var_log_fields(tag, time, record, fmtr_type = nil)
       record['systemd'] = {"t" => {"PID" => record['pid']}, "u" => {"SYSLOG_IDENTIFIER" => record['ident']}}
       if record[@dest_time_name].nil? # e.g. already has @timestamp
@@ -244,7 +306,7 @@ module Fluent
 
     def process_k8s_json_file_fields(tag, time, record, fmtr_type = nil)
       record['message'] = record['message'] || record['log']
-      record['level'] = (record['stream'] == 'stdout') ? 'info' : 'err'
+      record['level'] = normalize_level(record['level'], nil, record['stream'])
       if record.key?('kubernetes') && record['kubernetes'].respond_to?(:fetch) && \
          (k8shost = record['kubernetes'].fetch('host', nil))
         record['hostname'] = k8shost
