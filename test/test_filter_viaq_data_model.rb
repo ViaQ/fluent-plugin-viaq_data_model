@@ -471,6 +471,16 @@ class ViaqDataModelFilterTest < Test::Unit::TestCase
       assert_equal('b', rec['a'])
       assert_equal('unknown', rec['level'])
     end
+    test 'try a PRIORITY value that is a number' do
+      rec = emit_with_tag('journal.system', {'a'=>'b', 'PRIORITY'=>4}, '
+        <formatter>
+          tag "journal.system**"
+          type sys_journal
+        </formatter>
+      ')
+      assert_equal('b', rec['a'])
+      assert_equal('warning', rec['level'])
+    end
     test 'test with fallback to __REALTIME_TIMESTAMP' do
       input = normal_input.reject{|k,v| k == '_SOURCE_REALTIME_TIMESTAMP'}
       rec = emit_with_tag('journal.system', input, '
@@ -934,6 +944,87 @@ class ViaqDataModelFilterTest < Test::Unit::TestCase
       dellist = 'host,pid,ident'.split(',')
       dellist.each{|field| assert_nil(rec[field])}
     end
+    test 'process a k8s json-file record, stdout stream' do
+      ENV['IPADDR4'] = '127.0.0.1'
+      ENV['IPADDR6'] = '::1'
+      ENV['FLUENTD_VERSION'] = 'fversion'
+      ENV['DATA_VERSION'] = 'dversion'
+      input = {'kubernetes'=>{'host'=>'k8shost'},'stream'=>'stdout','time'=>@timestamp_str,'log'=>'mymessage'}
+      rec = emit_with_tag('kubernetes.var.log.containers.name.name_this_that_other_log', input, '
+        <formatter>
+          tag "kubernetes.var.log.containers**"
+          type k8s_json_file
+          remove_keys log,stream
+        </formatter>
+        pipeline_type normalizer
+      ')
+      assert_equal('mymessage', rec['message'])
+      assert_equal('k8shost', rec['hostname'])
+      assert_equal('info', rec['level'])
+      assert_equal(@timestamp_str, rec['@timestamp'])
+      assert_equal('127.0.0.1', rec['pipeline_metadata']['normalizer']['ipaddr4'])
+      assert_equal('::1', rec['pipeline_metadata']['normalizer']['ipaddr6'])
+      assert_equal('fluent-plugin-systemd', rec['pipeline_metadata']['normalizer']['inputname'])
+      assert_equal('fluentd', rec['pipeline_metadata']['normalizer']['name'])
+      assert_equal('fversion dversion', rec['pipeline_metadata']['normalizer']['version'])
+      assert_equal(@timestamp_str, rec['pipeline_metadata']['normalizer']['received_at'])
+      dellist = 'host,pid,ident'.split(',')
+      dellist.each{|field| assert_nil(rec[field])}
+    end
+    test 'process a k8s json-file record, existing level field' do
+      ENV['IPADDR4'] = '127.0.0.1'
+      ENV['IPADDR6'] = '::1'
+      ENV['FLUENTD_VERSION'] = 'fversion'
+      ENV['DATA_VERSION'] = 'dversion'
+      input = {'kubernetes'=>{'host'=>'k8shost'},'stream'=>'stderr','time'=>@timestamp_str,'log'=>'mymessage','level'=>0}
+      rec = emit_with_tag('kubernetes.var.log.containers.name.name_this_that_other_log', input, '
+        <formatter>
+          tag "kubernetes.var.log.containers**"
+          type k8s_json_file
+          remove_keys log,stream
+        </formatter>
+        pipeline_type normalizer
+      ')
+      assert_equal('mymessage', rec['message'])
+      assert_equal('k8shost', rec['hostname'])
+      assert_equal('0', rec['level'])
+      assert_equal(@timestamp_str, rec['@timestamp'])
+      assert_equal('127.0.0.1', rec['pipeline_metadata']['normalizer']['ipaddr4'])
+      assert_equal('::1', rec['pipeline_metadata']['normalizer']['ipaddr6'])
+      assert_equal('fluent-plugin-systemd', rec['pipeline_metadata']['normalizer']['inputname'])
+      assert_equal('fluentd', rec['pipeline_metadata']['normalizer']['name'])
+      assert_equal('fversion dversion', rec['pipeline_metadata']['normalizer']['version'])
+      assert_equal(@timestamp_str, rec['pipeline_metadata']['normalizer']['received_at'])
+      dellist = 'host,pid,ident'.split(',')
+      dellist.each{|field| assert_nil(rec[field])}
+    end
+    test 'process a k8s json-file record, already normalized existing level field' do
+      ENV['IPADDR4'] = '127.0.0.1'
+      ENV['IPADDR6'] = '::1'
+      ENV['FLUENTD_VERSION'] = 'fversion'
+      ENV['DATA_VERSION'] = 'dversion'
+      input = {'kubernetes'=>{'host'=>'k8shost'},'stream'=>'stderr','time'=>@timestamp_str,'log'=>'mymessage','level'=>'debug'}
+      rec = emit_with_tag('kubernetes.var.log.containers.name.name_this_that_other_log', input, '
+        <formatter>
+          tag "kubernetes.var.log.containers**"
+          type k8s_json_file
+          remove_keys log,stream
+        </formatter>
+        pipeline_type normalizer
+      ')
+      assert_equal('mymessage', rec['message'])
+      assert_equal('k8shost', rec['hostname'])
+      assert_equal('debug', rec['level'])
+      assert_equal(@timestamp_str, rec['@timestamp'])
+      assert_equal('127.0.0.1', rec['pipeline_metadata']['normalizer']['ipaddr4'])
+      assert_equal('::1', rec['pipeline_metadata']['normalizer']['ipaddr6'])
+      assert_equal('fluent-plugin-systemd', rec['pipeline_metadata']['normalizer']['inputname'])
+      assert_equal('fluentd', rec['pipeline_metadata']['normalizer']['name'])
+      assert_equal('fversion dversion', rec['pipeline_metadata']['normalizer']['version'])
+      assert_equal(@timestamp_str, rec['pipeline_metadata']['normalizer']['received_at'])
+      dellist = 'host,pid,ident'.split(',')
+      dellist.each{|field| assert_nil(rec[field])}
+    end
     # tests for elasticsearch index functionality
     test 'construct an operations index prefix' do
       rec = emit_with_tag('journal.system', normal_input, '
@@ -1252,6 +1343,67 @@ class ViaqDataModelFilterTest < Test::Unit::TestCase
         </elasticsearch_index_name>
       ')
       assert_equal('.operations.2017.07.27', rec['viaq_index_name'])
+    end
+    # level field processing
+    test 'see if existing level is preserved for journald log' do
+      rec = emit_with_tag('journal.system', {'a'=>'b', 'level'=>'this is my level'}, '
+        <formatter>
+          tag "journal.system**"
+          type sys_journal
+        </formatter>
+      ')
+      assert_equal('b', rec['a'])
+      assert_equal('this is my level', rec['level'])
+    end
+    test 'see if existing level is preserved and overrides PRIORITY' do
+      rec = emit_with_tag('journal.system', {'a'=>'b', 'PRIORITY'=>'3', 'level'=>'this is my level'}, '
+        <formatter>
+          tag "journal.system**"
+          type sys_journal
+        </formatter>
+      ')
+      assert_equal('b', rec['a'])
+      assert_equal('this is my level', rec['level'])
+    end
+    test 'see if existing level is preserved and converted to string' do
+      rec = emit_with_tag('journal.system', {'a'=>'b', 'level'=>1}, '
+        <formatter>
+          tag "journal.system**"
+          type sys_journal
+        </formatter>
+      ')
+      assert_equal('b', rec['a'])
+      assert_equal('1', rec['level'])
+    end
+    test 'see if existing level is preserved and converted to string with an odd type' do
+      rec = emit_with_tag('journal.system', {'a'=>'b', 'level'=>{}}, '
+        <formatter>
+          tag "journal.system**"
+          type sys_journal
+        </formatter>
+      ')
+      assert_equal('b', rec['a'])
+      assert_equal('{}', rec['level'])
+    end
+    test 'see if existing level is normalized to canonical form' do
+      rec = emit_with_tag('journal.system', {'a'=>'b', 'level'=>'CRITICAL'}, '
+        <formatter>
+          tag "journal.system**"
+          type sys_journal
+        </formatter>
+      ')
+      assert_equal('b', rec['a'])
+      assert_equal('crit', rec['level'])
+    end
+    test 'see if existing level already normalized is preserved' do
+      rec = emit_with_tag('journal.system', {'a'=>'b', 'level'=>'crit'}, '
+        <formatter>
+          tag "journal.system**"
+          type sys_journal
+        </formatter>
+      ')
+      assert_equal('b', rec['a'])
+      assert_equal('crit', rec['level'])
     end
   end
 end

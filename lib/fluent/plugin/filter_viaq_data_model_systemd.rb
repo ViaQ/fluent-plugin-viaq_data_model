@@ -93,18 +93,7 @@ module ViaqDataModelFilterSystemd
     unless systemd_k.empty?
       (record['systemd'] ||= {})['k'] = systemd_k
     end
-    begin
-      pri_index = ('%d' % record['PRIORITY'] || 9).to_i
-      case
-      when pri_index < 0
-        pri_index = 9
-      when pri_index > 9
-        pri_index = 9
-      end
-    rescue
-      pri_index = 9
-    end
-    record['level'] = ["emerg", "alert", "crit", "err", "warning", "notice", "info", "debug", "trace", "unknown"][pri_index]
+    record['level'] = normalize_level(record['level'], nil, nil, record['PRIORITY'])
     JOURNAL_TIME_FIELDS.each do |field|
       if (val = record[field])
         vali = val.to_i
