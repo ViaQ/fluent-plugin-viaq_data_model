@@ -143,6 +143,8 @@ module Fluent
     desc 'Optionally turn off processing of kubernetes events'
     config_param :process_kubernetes_events, :bool, default: true
 
+    config_param :orphaned_namespace_name, :string, default: '.orphaned'
+
     def configure(conf)
       super
       @keep_fields = {}
@@ -381,18 +383,24 @@ module Fluent
           when :operations_full, :operations_prefix
             prefix = ".operations"
           when :project_full, :project_prefix
-            if (k8s = record['kubernetes']).nil?
-              log.error("record cannot use elasticsearch index name type #{ein.name_type}: record is missing kubernetes field: #{record}")
-              break
-            elsif (name = k8s['namespace_name']).nil?
-              log.error("record cannot use elasticsearch index name type #{ein.name_type}: record is missing kubernetes.namespace_name field: #{record}")
-              break
-            elsif (uuid = k8s['namespace_id']).nil?
-              log.error("record cannot use elasticsearch index name type #{ein.name_type}: record is missing kubernetes.namespace_id field: #{record}")
-              break
+            name, uuid = nil
+            unless record['kubernetes'].nil?
+              k8s = record['kubernetes']
+              name = k8s['namespace_name']
+              uuid = k8s['namespace_id']
+              if name.nil?
+                log.error("record cannot use elasticsearch index name type #{ein.name_type}: record is missing kubernetes.namespace_name field: #{record}")
+              end
+              if uuid.nil?
+                log.error("record cannot use elasticsearch index name type #{ein.name_type}: record is missing kubernetes.namespace_id field: #{record}")
+              end
             else
-              prefix = "project." + name + "." + uuid
+              log.error("record cannot use elasticsearch index name type #{ein.name_type}: record is missing kubernetes field: #{record}")
             end
+            if name.nil? || uuid.nil?
+              name = @orphaned_namespace_name
+            end
+            prefix = name == @orphaned_namespace_name ? @orphaned_namespace_name : "project.#{name}.#{uuid}"
           end
 
           if ENV['CDM_DEBUG']
