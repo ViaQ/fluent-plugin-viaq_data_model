@@ -435,7 +435,7 @@ module Fluent
 
     def transform_eventrouter(tag, record)
       return unless @process_kubernetes_events
-      if record.key?("event")
+      if record.key?("event") && record["event"].respond_to?(:key?)
         if record.key?("verb")
           record["event"]["verb"] = record.delete("verb")
         end
