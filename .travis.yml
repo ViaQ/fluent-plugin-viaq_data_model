@@ -10,7 +10,7 @@ gemfile:
 
 env:
   - FLUENTD_VERSION=0.12.0
-  - FLUENTD_VERSION=0.14.0
+  - FLUENTD_VERSION=1
 
 script: bundle exec rake test
 sudo: false
