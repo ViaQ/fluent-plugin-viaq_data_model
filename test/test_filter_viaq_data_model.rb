@@ -379,6 +379,7 @@ class ViaqDataModelFilterTest < Test::Unit::TestCase
       assert_equal('fluentd', rec['pipeline_metadata']['normalizer']['name'])
       assert_equal('fversion dversion', rec['pipeline_metadata']['normalizer']['version'])
       assert_equal(@timestamp_str, rec['pipeline_metadata']['normalizer']['received_at'])
+      assert_equal(false, rec.key?('docker'))
       dellist = 'log,stream,MESSAGE,_SOURCE_REALTIME_TIMESTAMP,__REALTIME_TIMESTAMP,CONTAINER_ID,CONTAINER_ID_FULL,CONTAINER_NAME,PRIORITY,_BOOT_ID,_CAP_EFFECTIVE,_CMDLINE,_COMM,_EXE,_GID,_HOSTNAME,_MACHINE_ID,_PID,_SELINUX_CONTEXT,_SYSTEMD_CGROUP,_SYSTEMD_SLICE,_SYSTEMD_UNIT,_TRANSPORT,_UID,_AUDIT_LOGINUID,_AUDIT_SESSION,_SYSTEMD_OWNER_UID,_SYSTEMD_SESSION,_SYSTEMD_USER_UNIT,CODE_FILE,CODE_FUNCTION,CODE_LINE,ERRNO,MESSAGE_ID,RESULT,UNIT,_KERNEL_DEVICE,_KERNEL_SUBSYSTEM,_UDEV_SYSNAME,_UDEV_DEVNODE,_UDEV_DEVLINK,SYSLOG_FACILITY,SYSLOG_IDENTIFIER,SYSLOG_PID'.split(',')
       dellist.each{|field| assert_nil(rec[field])}
     end
@@ -502,6 +503,22 @@ class ViaqDataModelFilterTest < Test::Unit::TestCase
         </formatter>
       ')
       assert_equal(Time.at(@time).utc.to_datetime.rfc3339(6), rec['@timestamp'])
+    end
+    test 'test system containers' do
+      input = normal_input.merge({
+        'CONTAINER_ID' => 'container-id',
+        'CONTAINER_ID_FULL' => 'container-id-full',
+        'CONTAINER_NAME' => 'container-name'
+      })
+      rec = emit_with_tag('journal.system', input, '
+        <formatter>
+          tag "journal.system**"
+          type sys_journal
+        </formatter>
+      ')
+      assert_equal('container-name', rec['docker']['container_name'])
+      assert_equal('container-id', rec['docker']['container_id_short'])
+      assert_equal('container-id-full', rec['docker']['container_id'])
     end
     test 'process a kubernetes journal record, default settings' do
       ENV['IPADDR4'] = '127.0.0.1'

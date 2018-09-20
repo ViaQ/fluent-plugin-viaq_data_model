@@ -109,6 +109,20 @@ module ViaqDataModelFilterSystemd
       else
         record['hostname'] = record['_HOSTNAME']
       end
+      # system, non-kubernetes containers
+      docker = {}
+      if record.key?('CONTAINER_ID_FULL')
+        docker['container_id'] = record['CONTAINER_ID_FULL']
+      end
+      if record.key?('CONTAINER_ID')
+        docker['container_id_short'] = record['CONTAINER_ID']
+      end
+      if record.key?('CONTAINER_NAME')
+        docker['container_name'] = record['CONTAINER_NAME']
+      end
+      unless docker.empty?
+        record['docker'] = record['docker'] ? record['docker'].merge(docker) : docker
+      end
     when :k8s_journal
       record['message'] = record['message'] || record['MESSAGE'] || record['log']
       if record.key?('kubernetes') && record['kubernetes'].respond_to?(:fetch) && \
