@@ -1463,4 +1463,69 @@ class ViaqDataModelFilterTest < Test::Unit::TestCase
       assert_equal('crit', rec['level'])
     end
   end
+
+  sub_test_case 'undefined handling' do
+    def emit_with_tag(tag, msg={}, conf='')
+      d = create_driver(conf)
+      d.run {
+        d.emit_with_tag(tag, msg, @time)
+      }.filtered.instance_variable_get(:@record_array)[0]
+    end
+    test 'see if undefined fields are normalized to string and kept at top level' do
+      rec = emit_with_tag('tag', {'a'=>'b','c'=>404,'d'=>{'e'=>'f'},'g'=>[1, 2, 3]}, '
+        default_keep_fields x,y,z,time
+        undefined_to_string true
+      ')
+      assert_equal('b', rec['a'])
+      assert_equal('404', rec['c'])
+      assert_equal('{"e":"f"}', rec['d'])
+      assert_equal('[1,2,3]', rec['g'])
+    end
+    test 'see if undefined fields with dots in the name are replaced and undefined fields are normalized to string and kept at top level' do
+      rec = emit_with_tag('tag', {'a'=>'b','c'=>404,'d'=>{'e'=>'f'},'g'=>[1, 2, 3],'h.i.j'=>1}, '
+        default_keep_fields x,y,z,time
+        undefined_to_string true
+        undefined_dot_replace_char _
+      ')
+      assert_equal('b', rec['a'])
+      assert_equal('404', rec['c'])
+      assert_equal('{"e":"f"}', rec['d'])
+      assert_equal('[1,2,3]', rec['g'])
+      assert_equal('1', rec['h_i_j'])
+      assert_nil(rec['h.i.j'])
+    end
+    test 'check undefined fields with dots, undefined fields are normalized to string and kept in undefined container' do
+      rec = emit_with_tag('tag', {'a'=>'b','c'=>404,'d'=>{'e'=>'f'},'g'=>[1, 2, 3],'h.i.j'=>1}, '
+        default_keep_fields x,y,z,time
+        undefined_to_string true
+        undefined_dot_replace_char _
+        use_undefined true
+      ')
+      assert_equal('b', rec['undefined']['a'])
+      assert_equal('404', rec['undefined']['c'])
+      assert_equal('{"e":"f"}', rec['undefined']['d'])
+      assert_equal('[1,2,3]', rec['undefined']['g'])
+      assert_equal('1', rec['undefined']['h_i_j'])
+      assert_nil(rec['h.i.j'])
+      assert_nil(rec['undefined']['h.i.j'])
+    end
+    test 'check too many undefined fields stored as undefined JSON blob' do
+      require 'json'
+      input = {'a'=>'b','c'=>404,'d'=>{'e'=>'f'},'g'=>[1, 2, 3],'h.i.j'=>1}
+      output = JSON.dump(input)
+      rec = emit_with_tag('tag', input, '
+        default_keep_fields x,y,z,time,pipeline_metadata
+        undefined_to_string true
+        undefined_dot_replace_char _
+        use_undefined true
+        undefined_max_num_fields 0
+      ')
+      assert_equal(output, rec['undefined'])
+      assert_nil(rec['a'])
+      assert_nil(rec['c'])
+      assert_nil(rec['d'])
+      assert_nil(rec['g'])
+      assert_nil(rec['h.i.j'])
+    end
+  end
 end

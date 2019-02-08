@@ -15,13 +15,26 @@ following:
   * FixNum, Boolean and other field values are not removed - type must respond
     to `:empty?` to be considered empty
 
-* Moves "undefined" values to a top level field called `undefined`
+* Has multiple ways to handle "undefined" fields - that is - fields that
+  are not listed in `default_keep_fields` or in `extra_keep_fields`
+  * If `use_undefined true`, then undefined top level fields are moved
+    to a top level field called `undefined`
+  * If `undefined_to_string true`, then the values of undefined top level
+    fields are converted to their JSON string representation
+  * If `undefined_dot_replace_char` is set to a string value, then top
+    level fields with a `'.'` in the field name will have the `'.'` changed
+    to a `'_'` (by default - replace char is configurable)
+  * If `undefined_max_num_fields` is a number greater than `-1`, and if the
+    number of undefined fields is greater than this number, all of the
+    undefined fields will be converted to their JSON string representation
+    and stored in the `undefined_name` named field.
 
 The ViaQ data model wants all top level fields defined and described.  These
 can conflict with the fields defined by ViaQ.  You can "move" these fields to
 be under a hash valued top level field called `undefined` so as not to conflict
 with the "well known" ViaQ top level fields.  You can optionally keep some
-fields as top level fields while moving others to the `undefined` container.
+fields as top level fields while moving others to the `undefined` container by
+adding those fields to the `extra_keep_fields` list.
 
 * Rename a time field to `@timestamp`
 
@@ -63,6 +76,9 @@ See `filter-viaq_data_model.conf` for an example filter configuration.
 * `default_keep_fields` - comma delimited string - default: `''`
   * This is the default list of fields to keep as top level fields in the record
   * `default_keep_fields message,@timestamp,ident` - do not move these fields into the `undefined` field
+  * The default list of fields comes from the list of top level fields defined in the
+    ViaQ https://github.com/ViaQ/elasticsearch-templates - see below for an example of how to extract
+    those fields to set the default value for `default_keep_fields`
 * `extra_keep_fields` - comma delimited string - default: `''`
   * This is an extra list of fields to keep in addition to
   `default_keep_fields` - mostly useful as a way to hard code the
@@ -80,6 +96,23 @@ See `filter-viaq_data_model.conf` for an example filter configuration.
 * `undefined_name` - string - default `"undefined"`
   * Name of undefined top level field to use if `use_undefined true` is set
   * `undefined_name myfields` - keep undefined fields under field `myfields`
+* `undefined_to_string` - boolean - default `true`
+  * normalize undefined values to be string valued - see below
+* `undefined_dot_replace_char` - string - default `'_'`
+  * If an undefined field name has a `'.'` dot character in it, replace the dot
+    with the replace char e.g. convert `"foo.bar"` to `"foo_bar"` - see below
+  * Use the value `UNUSED` if you do not want to do any replacement - this is
+    not recommended
+* `undefined_max_num_fields` - integer - default `1000`
+  * If the number of undefined fields exceeds the value of `undefined_max_num_fields`,
+    then convert the hash of undefined fields to its JSON string representation,
+    and store the values in the `undefined_name` field - see below
+  * Use a value of `-1` if you want to have an unlimited number of undefined
+    fields (not recommended)
+  * Using `undefined_max_num_fields` implies that you want to use `undefined_name`
+    as the name of the field to store the value, even if `use_undefined` is not
+    set - if you want to use a different field name than `"undefined"` then set
+    `undefined_name`
 * `rename_time` - boolean - default `true`
   * Rename the time field e.g. when you need to set `@timestamp` in the record
   * NOTE: This will overwrite the `dest_time_name` if already set
@@ -145,7 +178,122 @@ See `filter-viaq_data_model.conf` for an example filter configuration.
   in the file.  This means, don't use `tag "**"` as the first formatter or none
   of your others will be matched or evaulated.
 
-## Example
+## How to get fields for `default_keep_fields`
+
+If you have https://github.com/ViaQ/elasticsearch-templates cloned locally in
+`../elasticsearch-templates`:
+
+    python -c 'import sys,yaml
+    uniquefields = {}
+    for ff in sys.argv[1:]:
+      hsh = yaml.load(open(ff))
+      print hsh
+      if 0 < ff.find("_default_.yml"):
+        # default is a special case
+        for ent in hsh["_default_"]["fields"]:
+          fieldname = ent["name"]
+          uniquefields[fieldname] = fieldname
+      else:
+        fieldname = hsh.get("namespace")
+        if fieldname:
+          fieldname = hsh["namespace"]["name"]
+          uniquefields[fieldname] = fieldname
+        else:
+          fieldname = hsh.keys()[0]
+          uniquefields[fieldname] = fieldname
+    print ",".join(sorted(uniquefields.keys()))
+    ' $( find ../elasticsearch-templates/namespaces -name \*.yml )
+
+## `undefined_to_string`
+One of the problems with storing data in Elasticsearch is that it really
+requires you to have strict control over the fields and the number of fields
+being stored.  You typically have to define a strict input pipeline for
+formatting the data, and define index templates to specify the type of data.
+If you are dealing with unstructured data, you run into the risk that you have
+a field named `fieldname` which in some records has a `string` value, but in
+other documents may have an `int` value or a value of some other data type.
+To mitigate this situation, the viaq plugin will convert unknown fields to their
+JSON string representation.  For example, if you have the following configuration:
+
+    undefined_to_string true
+
+and you get a record that looks like this:
+
+    {
+      "message":"my message",
+      "stringfield":"this is a string",
+      "status":404,
+      "compositefield":{"a":"b"},
+      "anarray":[1, 2, 3]
+    }
+
+The end result would look like this:
+
+    {
+      "message":"my message",
+      "stringfield":"this is a string",
+      "status":"404",
+      "compositefield":"{\"a\":\"b\"}",
+      "anarray":"[1, 2, 3]"
+    }
+
+That is, the value of any unknown fields will be converted to their JSON string
+representation.
+
+## `undefined_dot_replace_char`
+Another problem with storing data in Elasticsearch is that it will interpret
+a field name like `"foo.bar"` to mean a Hash (Object type in Elasticsearch)
+with a structure like this:
+
+    {
+      "foo":{
+        "bar":"value"
+      }
+    }
+
+This causes problems if the application emits logs with a string valued field `"foo"`,
+_and_ a hash valued field `"foo.bar"`.  The only way to automatically solve this problem is by
+converting `"foo.bar"` to be `"foo_bar"`, and using `undefined_to_string true` to convert both
+values to string.
+
+### But I really want to store "foo.bar" as a Hash/Object!
+
+Since there is no automatic way to do this, it is the responsibility of _you_, the user, to
+* create your own Elasticsearch index templates and index patterns for your fields
+  * see https://github.com/ViaQ/elasticsearch-templates/
+  * see https://github.com/richm/docs/releases/tag/20180904175002
+  * see also the Elasticsearch docs
+* create your own custom Fluend `record_transformer` filter to restructure the record
+  to conform to your schema
+* add your custom fields to `extra_keep_fields` so that the ViaQ filter will not touch them
+
+## `undefined_max_num_fields`
+Another problem with storing data in Elasticsearch is that there is an upper limit to
+the number of fields it can store without causing performance problems.  Viaq uses
+`undefined_max_num_fields` to set an upper bound on the number of undefined fields in a single
+record.  If the record contains more than `undefined_max_num_fields` undefined fields, no
+further processing will take place on these fields.  Instead, the fields will be converted
+to a single string JSON value, and will be stored in a top level field named with the value
+of the `undefined_name` parameter (default `"undefined"`).  The default value is `1000` undefined
+fields.  For example, if you have a record which looks like this:
+
+    {
+      "field1":"value1",
+      ...
+      "field10001":"value10001"
+    }
+
+where there are 10001 fields, the plugin by default will convert this to look something like this:
+
+    {
+      "undefined":"{\"field1\":\"value1\",...,\"field10001\":\"value10001\"}"
+    }
+
+You can still use Elasticsearch to search for the values, but you will need to use a complex query/filter
+string.  The alternative is not being able to use Elasticsearch at all, or clobbering the performance
+of Elasticsearch.
+
+## Example - default values - undefined_to_string false
 
 If the input record looks like this:
 
