@@ -17,6 +17,7 @@
 #
 require 'time'
 require 'date'
+require 'json'
 
 require 'fluent/filter'
 require 'fluent/log'
@@ -75,6 +76,17 @@ module Fluent
 
     desc 'Name of undefined field to store fields not in above lists if use_undefined is true'
     config_param :undefined_name, :string, default: 'undefined'
+
+    desc 'Normalize undefined fields to string - highly recommended'
+    config_param :undefined_to_string, :bool, default: false
+
+    DOT_REPLACE_CHAR_UNUSED = 'UNUSED'
+    desc 'Undefined dot replace char - highly recommended'
+    config_param :undefined_dot_replace_char, :string, default: '_'
+  
+    NUM_FIELDS_UNLIMITED = -1
+    desc 'Maximum number of undefined fields'
+    config_param :undefined_max_num_fields, :integer, default: 1000
 
     # we can't directly add a field called @timestamp in a record_transform
     # filter because the '@' is special to fluentd
@@ -161,6 +173,7 @@ module Fluent
       if (@rename_time || @rename_time_if_not_exist) && @use_undefined && !@keep_fields.key?(@src_time_name)
         raise Fluent::ConfigError, "Field [#{@src_time_name}] must be listed in default_keep_fields or extra_keep_fields"
       end
+      @undefined_dot_replace_char = nil if @undefined_dot_replace_char == DOT_REPLACE_CHAR_UNUSED
       if @formatters
         @formatters.each do |fmtr|
           matcher = ViaqMatchClass.new(fmtr.tag, nil)
@@ -449,6 +462,40 @@ module Fluent
       end
     end
 
+    def handle_undefined_fields(tag, time, record)
+      if @undefined_to_string || @use_undefined || @undefined_dot_replace_char || (@undefined_max_num_fields > NUM_FIELDS_UNLIMITED)
+        # undefined contains all of the fields not in keep_fields
+        undefined_keys = record.keys - @keep_fields.keys
+        return if undefined_keys.empty?
+        if @undefined_max_num_fields > NUM_FIELDS_UNLIMITED && undefined_keys.length > @undefined_max_num_fields
+          undefined = {}
+          undefined_keys.each{|k|undefined[k] = record.delete(k)}
+          record[@undefined_name] = JSON.dump(undefined)
+        else
+          if @use_undefined
+            record[@undefined_name] = {}
+            modify_hsh = record[@undefined_name]
+          else
+            modify_hsh = record
+          end
+          undefined_keys.each do |k|
+            origk = k
+            if @use_undefined
+              modify_hsh[k] = record.delete(k)
+            end
+            if @undefined_dot_replace_char && k.index('.')
+              newk = k.gsub('.', @undefined_dot_replace_char)
+              modify_hsh[newk] = modify_hsh.delete(k)
+              k = newk
+            end
+            if @undefined_to_string && !modify_hsh[k].is_a?(String)
+              modify_hsh[k] = JSON.dump(modify_hsh[k])
+            end
+          end
+        end
+      end
+    end
+
     def filter(tag, time, record)
       if ENV['CDM_DEBUG']
         unless tag == ENV['CDM_DEBUG_IGNORE_TAG']
@@ -458,16 +505,7 @@ module Fluent
 
       check_for_match_and_format(tag, time, record)
       add_pipeline_metadata(tag, time, record)
-      if @use_undefined
-        # undefined contains all of the fields not in keep_fields
-        undefined = record.reject{|k,v| @keep_fields.key?(k)}
-        # only set the undefined field if there are undefined fields
-        unless undefined.empty?
-          record[@undefined_name] = undefined
-          # remove the undefined fields from the record top level
-          record.delete_if{|k,v| undefined.key?(k)}
-        end
-      end
+      handle_undefined_fields(tag, time, record)
       # remove the field from record if it is not in the list of fields to keep and
       # it is empty
       record.delete_if{|k,v| !@keep_empty_fields_hash.key?(k) && (v.nil? || isempty(delempty(v)) || isempty(v))}
