@@ -1,4 +1,5 @@
 # fluent-plugin-viaq_data_model - a ViaQ data model filter plugin for [Fluentd](http://fluentd.org)
+
 [![Travis CI](https://secure.travis-ci.org/ViaQ/fluent-plugin-viaq_data_model.png)](http://travis-ci.org/#!/ViaQ/fluent-plugin-viaq_data_model)
 
 ## Introduction
@@ -77,7 +78,7 @@ See `filter-viaq_data_model.conf` for an example filter configuration.
   * This is the default list of fields to keep as top level fields in the record
   * `default_keep_fields message,@timestamp,ident` - do not move these fields into the `undefined` field
   * The default list of fields comes from the list of top level fields defined in the
-    ViaQ https://github.com/ViaQ/elasticsearch-templates - see below for an example of how to extract
+    ViaQ [elasticsearch templates](https://github.com/ViaQ/elasticsearch-templates) - see below for an example of how to extract
     those fields to set the default value for `default_keep_fields`
 * `extra_keep_fields` - comma delimited string - default: `''`
   * This is an extra list of fields to keep in addition to
@@ -96,14 +97,14 @@ See `filter-viaq_data_model.conf` for an example filter configuration.
 * `undefined_name` - string - default `"undefined"`
   * Name of undefined top level field to use if `use_undefined true` is set
   * `undefined_name myfields` - keep undefined fields under field `myfields`
-* `undefined_to_string` - boolean - default `true`
+* `undefined_to_string` - boolean - default `false`
   * normalize undefined values to be string valued - see below
-* `undefined_dot_replace_char` - string - default `'_'`
+* `undefined_dot_replace_char` - string - default `UNUSED`
   * If an undefined field name has a `'.'` dot character in it, replace the dot
     with the replace char e.g. convert `"foo.bar"` to `"foo_bar"` - see below
   * Use the value `UNUSED` if you do not want to do any replacement - this is
     not recommended
-* `undefined_max_num_fields` - integer - default `1000`
+* `undefined_max_num_fields` - integer - default `-1`
   * If the number of undefined fields exceeds the value of `undefined_max_num_fields`,
     then convert the hash of undefined fields to its JSON string representation,
     and store the values in the `undefined_name` field - see below
@@ -180,7 +181,7 @@ See `filter-viaq_data_model.conf` for an example filter configuration.
 
 ## How to get fields for `default_keep_fields`
 
-If you have https://github.com/ViaQ/elasticsearch-templates cloned locally in
+If you have [elasticsearch templates](https://github.com/ViaQ/elasticsearch-templates) cloned locally in
 `../elasticsearch-templates`:
 
     python -c 'import sys,yaml
@@ -205,6 +206,7 @@ If you have https://github.com/ViaQ/elasticsearch-templates cloned locally in
     ' $( find ../elasticsearch-templates/namespaces -name \*.yml )
 
 ## `undefined_to_string`
+
 One of the problems with storing data in Elasticsearch is that it really
 requires you to have strict control over the fields and the number of fields
 being stored.  You typically have to define a strict input pipeline for
@@ -241,6 +243,7 @@ That is, the value of any unknown fields will be converted to their JSON string
 representation.
 
 ## `undefined_dot_replace_char`
+
 Another problem with storing data in Elasticsearch is that it will interpret
 a field name like `"foo.bar"` to mean a Hash (Object type in Elasticsearch)
 with a structure like this:
@@ -256,18 +259,20 @@ _and_ a hash valued field `"foo.bar"`.  The only way to automatically solve this
 converting `"foo.bar"` to be `"foo_bar"`, and using `undefined_to_string true` to convert both
 values to string.
 
-### But I really want to store "foo.bar" as a Hash/Object!
+### OK, but I really want to store "foo.bar" as a Hash/Object
 
 Since there is no automatic way to do this, it is the responsibility of _you_, the user, to
+
 * create your own Elasticsearch index templates and index patterns for your fields
-  * see https://github.com/ViaQ/elasticsearch-templates/
-  * see https://github.com/richm/docs/releases/tag/20180904175002
+  * see [elasticsearch templates](https://github.com/ViaQ/elasticsearch-templates/)
+  * see [custom index templates](https://github.com/richm/docs/releases/tag/20180904175002)
   * see also the Elasticsearch docs
 * create your own custom Fluend `record_transformer` filter to restructure the record
   to conform to your schema
 * add your custom fields to `extra_keep_fields` so that the ViaQ filter will not touch them
 
 ## `undefined_max_num_fields`
+
 Another problem with storing data in Elasticsearch is that there is an upper limit to
 the number of fields it can store without causing performance problems.  Viaq uses
 `undefined_max_num_fields` to set an upper bound on the number of undefined fields in a single
@@ -413,7 +418,6 @@ will end up looking like this:
       "kubernetes":{"namespace_name":"myproject","namespace_id":"000000"}
       "viaq_index_name":"project.myproject.000000.2017.07.07"
     }
-
 
 ### Note about using enabled false
 
