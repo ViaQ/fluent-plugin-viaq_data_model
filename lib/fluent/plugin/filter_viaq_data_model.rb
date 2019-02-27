@@ -77,16 +77,16 @@ module Fluent
     desc 'Name of undefined field to store fields not in above lists if use_undefined is true'
     config_param :undefined_name, :string, default: 'undefined'
 
-    desc 'Normalize undefined fields to string - highly recommended'
+    desc 'Normalize undefined fields to string - highly recommended to use true'
     config_param :undefined_to_string, :bool, default: false
 
     DOT_REPLACE_CHAR_UNUSED = 'UNUSED'
-    desc 'Undefined dot replace char - highly recommended'
-    config_param :undefined_dot_replace_char, :string, default: '_'
+    desc 'Undefined dot replace char - highly recommended to use _'
+    config_param :undefined_dot_replace_char, :string, default: DOT_REPLACE_CHAR_UNUSED
   
     NUM_FIELDS_UNLIMITED = -1
-    desc 'Maximum number of undefined fields'
-    config_param :undefined_max_num_fields, :integer, default: 1000
+    desc 'Maximum number of undefined fields - highly recommended to use 500 or less'
+    config_param :undefined_max_num_fields, :integer, default: NUM_FIELDS_UNLIMITED
 
     # we can't directly add a field called @timestamp in a record_transform
     # filter because the '@' is special to fluentd
