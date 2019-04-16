@@ -83,7 +83,7 @@ module Fluent
     DOT_REPLACE_CHAR_UNUSED = 'UNUSED'
     desc 'Undefined dot replace char - highly recommended to use _'
     config_param :undefined_dot_replace_char, :string, default: DOT_REPLACE_CHAR_UNUSED
-  
+
     NUM_FIELDS_UNLIMITED = -1
     desc 'Maximum number of undefined fields - highly recommended to use 500 or less'
     config_param :undefined_max_num_fields, :integer, default: NUM_FIELDS_UNLIMITED
@@ -458,7 +458,7 @@ module Fluent
           ((record['pipeline_metadata'] ||= {})[@pipeline_type.to_s] ||= {})['original_raw_message'] = record['message']
         end
         record['message'] = record["kubernetes"]["event"].delete("message")
-        record['time'] = record["kubernetes"]["event"]["metadata"].delete("creationTimestamp") 
+        record['time'] = record["kubernetes"]["event"]["metadata"].delete("lastTimestamp")
       end
     end
 
