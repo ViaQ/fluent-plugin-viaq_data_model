@@ -200,7 +200,7 @@ module Fluent
       begin
         @docker_hostname = File.open('/etc/docker-hostname') { |f| f.readline }.rstrip
       rescue
-        @docker_hostname = nil
+        @docker_hostname = ENV['NODE_NAME'] || nil
       end
       @ipaddr4 = ENV['IPADDR4'] || '127.0.0.1'
       @ipaddr6 = nil
